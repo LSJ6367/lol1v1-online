@@ -5,8 +5,15 @@
    - 시간은 바깥(server.js의 전역 루프)이 준다: update(dt)=카운트다운 진행, tick()=게임 1틱.
    - 메서드 실패는 오류 코드 문자열을 돌려준다(성공은 null). 서버가 {t:'error'}로 바꿔 보낸다.
    ===================================================================== */
-const Core = require('../shared/core.js');
-const P = require('../shared/protocol.js');
+/* UMD: Node는 require, 브라우저(방장 기기 안의 Hub)는 window.Room */
+(function (root, factory) {
+  const api = (typeof module === 'object' && module.exports)
+    ? factory(require('../shared/core.js'), require('../shared/protocol.js'))
+    : factory(root.Core, root.Protocol);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.Room = api.Room;
+})(typeof self !== 'undefined' ? self : this, function (Core, P) {
+'use strict';
 
 class Room {
   constructor(opts) {
@@ -225,4 +232,5 @@ class Room {
   _sendRaw(p, s) { if (p.conn) p.conn.send(s); }
 }
 
-module.exports = { Room };
+return { Room };
+});

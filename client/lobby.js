@@ -19,6 +19,10 @@ const ERR_TEXT = {
 };
 const CHAMP = id => (id && Core.CHAMPS[id]) ? Core.CHAMPS[id].name : '챔피언 미선택';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+/* 구글 스크립트(Apps Script) 안이면 서버 대신 방장 브라우저가 방을 맡는 P2PNet을 쓴다. 나머지 화면 흐름은 같다 */
+const IS_P2P = !!(window.google && google.script && google.script.run);
+const NetImpl = IS_P2P ? window.P2PNet : window.Net;
+const P2P_STATUS = '구글 스크립트 모드 · 같은 와이파이에서 방장 기기가 서버가 돼요';
 
 const scr = { lobby: $('#lobby'), room: $('#room'), select: $('#select') };
 let connected = false;
@@ -34,10 +38,11 @@ function showScreen(name) {
 }
 
 let toastT = 0;
-function toast(msg) {
+function toast(msg, ms) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600);
+  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms || 2600);
 }
+function hideToast() { clearTimeout(toastT); $('#toast').hidden = true; }
 
 /* ---------- 닉네임 (localStorage는 실패할 수 있으므로 try/catch) ---------- */
 function loadNick() { try { return localStorage.getItem(NICK_KEY) || ''; } catch (e) { return ''; } }
@@ -47,18 +52,18 @@ const nickVal = () => $('#nick').value.trim() || '소환사';
 /* ---------- 연결 ---------- */
 function setConn(state) {   // 'connecting' | 'ok' | 'off'
   const el = $('#connStatus');
-  el.textContent = state === 'ok' ? '연결됨' : state === 'connecting' ? '서버 연결 중…' : '서버에 연결할 수 없음 — 오프라인 연습만 가능';
+  el.textContent = state === 'ok' ? (IS_P2P ? P2P_STATUS : '연결됨') : state === 'connecting' ? '서버 연결 중…' : '서버에 연결할 수 없음 — 오프라인 연습만 가능';
   el.className = 'sub' + (state === 'ok' ? ' ok' : state === 'off' ? ' bad' : '');
   for (const id of ['#btnCreate', '#btnTest', '#btnJoin']) $(id).disabled = state !== 'ok';
 }
 async function connect() {
   setConn('connecting');
   const nick = nickVal();
-  try { await Net.connect(nick); connected = true; connectedNick = nick; setConn('ok'); }
+  try { await NetImpl.connect(nick); connected = true; connectedNick = nick; setConn('ok'); }
   catch (e) { connected = false; setConn('off'); }
 }
 async function reconnect() {   // 닉네임은 연결 시 한 번 보내므로, 바꾸면 다시 연결
-  if (connected) { connected = false; Net.close(); }
+  if (connected) { connected = false; NetImpl.close(); }
   await connect();
 }
 /* 방 만들기/참가 직전: 닉네임이 바뀌었으면 먼저 다시 연결하고 나서 보냄 */
@@ -68,7 +73,7 @@ async function sendLobby(msg) {
   try {
     saveNick(nickVal());
     if (!connected || nickVal() !== connectedNick) await reconnect();
-    if (connected) Net.send(msg); else toast('서버에 연결할 수 없어요');
+    if (connected) NetImpl.send(msg); else toast('서버에 연결할 수 없어요');
   } finally { busy = false; }
 }
 
@@ -79,13 +84,13 @@ function leaveSession() {
   $('#result').hidden = true;
 }
 function leaveRoom() {   // 방 나가기 → 로비
-  Net.send({ t: 'leave' });
+  NetImpl.send({ t: 'leave' });
   leaveSession(); room = null;
   showScreen('lobby');
 }
 
 /* ---------- 대기실 ---------- */
-const myPlayer = () => (room && room.players) ? room.players.find(p => p.pid === Net.pid) || null : null;
+const myPlayer = () => (room && room.players) ? room.players.find(p => p.pid === NetImpl.pid) || null : null;
 const roomCards = $('#roomCards');
 roomCards.innerHTML = $('#cards').innerHTML;   // 챔피언 카드는 client.js 것과 같은 모양
 
@@ -96,7 +101,7 @@ function renderRoom() {
   $('#roomCode').textContent = room.code;
   $('#players').innerHTML = (room.players || []).map(p => `<li>
       <span class="team t${p.team}">${TEAM_NAME[p.team] || ''}</span>
-      <span class="nm">${esc(p.name)}${p.pid === Net.pid ? ' <span class="me">(나)</span>' : ''}</span>
+      <span class="nm">${esc(p.name)}${p.pid === NetImpl.pid ? ' <span class="me">(나)</span>' : ''}</span>
       <span class="ch">${CHAMP(p.champ)}</span>
       <span class="rdy${p.ready ? ' on' : ''}">${p.ready ? '준비 완료' : '대기 중'}</span>
     </li>`).join('');
@@ -120,10 +125,10 @@ roomCards.addEventListener('click', e => {
   const b = e.target.closest('.card');
   const me = myPlayer();
   if (!b || b.disabled || !me || me.ready) return;
-  Net.send({ t: 'pick', champ: b.dataset.key });
+  NetImpl.send({ t: 'pick', champ: b.dataset.key });
 });
 $('#btnReady').addEventListener('click', () => {
-  const me = myPlayer(); if (me) Net.send({ t: 'ready', on: !me.ready });
+  const me = myPlayer(); if (me) NetImpl.send({ t: 'ready', on: !me.ready });
 });
 $('#btnLeave').addEventListener('click', leaveRoom);
 
@@ -131,10 +136,15 @@ $('#btnLeave').addEventListener('click', leaveRoom);
 function join() {
   const code = $('#codeIn').value.trim().toUpperCase();
   if (code.length !== 4) { toast('방 코드 4자리를 입력해 주세요'); return; }
+  if (IS_P2P) toast('방장에게 연결 중…', 20000);     // 방에 들어가면 room 이 오며 지워진다. 실패하면 오류 토스트가 덮는다
   sendLobby({ t: 'join', code });
 }
-$('#btnCreate').addEventListener('click', () => sendLobby({ t: 'create', test: false }));
-$('#btnTest').addEventListener('click', () => sendLobby({ t: 'create', test: true }));
+const createRoom = test => {
+  if (IS_P2P) toast('방을 만드는 중…', 8000);
+  sendLobby({ t: 'create', test });
+};
+$('#btnCreate').addEventListener('click', () => createRoom(false));
+$('#btnTest').addEventListener('click', () => createRoom(true));
 $('#btnJoin').addEventListener('click', join);
 $('#codeIn').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 $('#codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
@@ -167,25 +177,32 @@ $('#btnAgain').addEventListener('click', () => {   // 같은 방 대기실로 (�
 $('#btnOut').addEventListener('click', leaveRoom);
 
 /* ---------- 서버 메시지 ---------- */
-Net.on('room', m => {
+NetImpl.on('room', m => {
   room = m;
+  if (IS_P2P) hideToast();      // 방에 들어갔거나 방이 만들어졌으면 '연결 중' 안내를 지운다
   if (session) return;          // 게임·결과 화면 중에는 화면을 바꾸지 않음(값만 갱신)
   showScreen('room'); renderRoom();
 });
-Net.on('start', m => {
+NetImpl.on('start', m => {
   leaveSession();
-  session = new OnlineSession(Net, m, { predict: true, test: !!(room && room.test), now: () => performance.now() });
+  session = new OnlineSession(NetImpl, m,{ predict: true, test: !!(room && room.test), now: () => performance.now() });
   showScreen('game');
   Game.start(session, { onExit: leaveRoom });
 });
-Net.on('end', m => {
+NetImpl.on('end', m => {
   if (!session) return;
   Game.pause(true);
   showResult(m);
 });
-Net.on('error', m => toast(ERR_TEXT[m.code] || m.msg || '오류가 났어요'));
-Net.onClose(() => {
+NetImpl.on('error', m => toast(ERR_TEXT[m.code] || m.msg || '오류가 났어요'));
+NetImpl.onClose(reason => {
   if (!connected) return;       // 연결 시도 중 실패 등은 setConn으로 이미 처리
+  if (IS_P2P) {                 // 방장 브라우저와의 연결이 끊김(또는 직접 연결 실패): 연결 자체는 살아 있으므로 로비로
+    if (typeof reason === 'string') toast(reason);
+    leaveSession(); room = null;
+    showScreen('lobby');
+    return;
+  }
   connected = false; setConn('off');
   toast('서버 연결이 끊겼어요');
   leaveSession(); room = null;

@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node server/server.js",
     "build": "node tools/build.js",
-    "test": "node test/core.test.js && node test/passive.test.js && node test/protocol.test.js && node test/server.test.js && node test/session_online.test.js"
+    "build:gas": "node tools/build_gas.js",
+    "test": "node test/core.test.js && node test/passive.test.js && node test/protocol.test.js && node test/server.test.js && node test/session_online.test.js && node test/hub.test.js && node test/p2p.test.js && node test/gas.test.js && node test/gas_fresh.test.js",
+    "test:e2e": "node test/p2p_e2e.js"
   }
 }

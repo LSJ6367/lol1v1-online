@@ -8,6 +8,7 @@ const mods = {
   'shared/protocol.js': fs.readFileSync(R('shared/protocol.js'), 'utf8'),
   'server/ws.js': fs.readFileSync(R('server/ws.js'), 'utf8'),
   'server/room.js': fs.readFileSync(R('server/room.js'), 'utf8'),
+  'server/hub.js': fs.readFileSync(R('server/hub.js'), 'utf8'),
   'server/server.js': fs.readFileSync(R('server/server.js'), 'utf8'),
 };
 let srv = mods['server/server.js'];
