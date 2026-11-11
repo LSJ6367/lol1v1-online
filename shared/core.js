@@ -79,6 +79,21 @@ const SK = {
 };
 const SKILL_KEYS = ['q', 'w', 'e', 'r'];
 
+/* 마스터 이 (DESIGN_YI.md §3~§7, 원문 docs/spec/yi.md). 거리 단위는 유닛 */
+const YI_PASSIVE = { every: 4, ratio: 0.5, extraDelay: 0.12 };
+const SKILLS = {
+  darius: SK,
+  yi: {
+    q: { name: '일격필살', max: 5, range: 600, dmg: [35, 70, 105, 140, 175], ratio: 1.225, share: 0.25,
+         first: 0.2, gap: 0.22, hits: 4, appear: 0.9, mana: [50, 55, 60, 65, 70], cd: [20, 19.5, 19, 18.5, 18], cdPerHit: 1 },
+    w: { name: '명상', max: 5, dur: 4, heal: [30, 50, 70, 90, 100], apRatio: 0.25, manaBase: 40, manaPct: 0.06,
+         cd: [10, 10, 10, 10, 10], drFirst: 0.7, drFirstT: 0.5, dr: [0.45, 0.475, 0.5, 0.525, 0.55], postT: 0.5, turretHalf: 0.5 },
+    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },
+    r: { name: '최후의 전사', max: 1, dur: 7, ms: 0.4, as: 0.25, mana: [100], cd: [85] }
+  }
+};
+const EPS = 1e-9;
+
 /* ---------------------------------------------------------------------
    기본 계산
    --------------------------------------------------------------------- */
@@ -133,7 +148,8 @@ function makeChamp(id, key, team) {
     might: 0, sk: { q: 0, w: 0, e: 0, r: 0 }, sp: START_LEVEL, cd: { q: 0, w: 0, e: 0, r: 0 },
     wBuff: false, cast: null, qPrep: null,
     air: 0, airMax: 1, slow: null, pull: null, pendSlow: false, bleed: null,
-    dead: false, respawn: 0
+    dead: false, respawn: 0,
+    dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0
   };
 }
 function makeDummy(id, team) {
@@ -163,7 +179,7 @@ const isChampLike = u => u.kind === 'champ' || u.kind === 'dummy';      // 과�
 const alive = u => !u.dead;
 const edgeDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - px(a.r) - px(b.r);   // 히트박스 끝 ~ 히트박스 끝
 function enemiesOf(w, c) {
-  return [].concat(w.champs, w.dummies, w.turrets).filter(u => u.team !== c.team && alive(u));
+  return [].concat(w.champs, w.dummies, w.turrets).filter(u => u.team !== c.team && alive(u) && !u.untarget);
 }
 function targetInRange(w, c) {
   const range = px(c.stats.range + (c.wBuff ? SK.w.rangeBonus : 0));
@@ -176,6 +192,11 @@ function ultTarget(w, c) {
   for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SK.r.range) && d < bd) { best = u; bd = d; } }
   return best;
 }
+function yiQTarget(w, c) {   // 일격필살 자동 대상: 사거리 600 안에서 가장 가까운 대상 지정 가능한 적(없으면 null)
+  let best = null, bd = Infinity;
+  for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SKILLS.yi.q.range) && d < bd) { best = u; bd = d; } }
+  return best;
+}
 function autoAim(w, c, champOnly) {   // 가장 가까운 적 방향, 없으면 바라보는 방향
   let best = null, bd = Infinity;
   for (const u of enemiesOf(w, c)) { if (champOnly && !isChampLike(u)) continue; const d = Math.hypot(u.x - c.x, u.y - c.y); if (d < bd) { bd = d; best = u; } }
@@ -186,12 +207,19 @@ function dummyDps(w, d) { const from = w.time - 5; let s = 0; for (const h of d.
 /* 챔피언 파생 수치 */
 const buffAD = c => c.might > 0 ? BLEED.buffBase + BLEED.buffPerLvl * (c.level - 1) : 0;
 const curAD = c => c.stats.ad + buffAD(c);
-const penPct = c => c.stats.pen + (c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
+const penPct = c => c.stats.pen + (c.key === 'darius' && c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
 const bleedPerStack = c => BLEED.base + BLEED.perLvl * (c.level - 1);
 const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
-const skIdx = (k, lv) => Math.min(Math.max(lv, 1), SK[k].mana.length) - 1;
-const skMana = (c, k) => SK[k].mana[skIdx(k, c.sk[k])];
-const skCd = (c, k) => SK[k].cd[skIdx(k, c.sk[k])];
+const skillsOf = c => SKILLS[c.key];
+const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
+const skMana = (c, k) => {
+  if (c.key === 'yi' && k === 'w') { const w = SKILLS.yi.w; return w.manaBase + w.manaPct * c.stats.maxMana; }   // 명상: 40 + 최대 마나 6%
+  const t = SKILLS[c.key][k]; return t.mana[skIdx(t, c.sk[k])];
+};
+const skCd = (c, k) => { const t = SKILLS[c.key][k]; return t.cd[skIdx(t, c.sk[k])]; };
+/* 최후의 전사: 공격속도 = 기본 공속 × (1 + 성장% + 25%), 이동속도 ×1.4 */
+const curAS = c => { if (!(c.hl > 0)) return c.stats.as; const b = CHAMPS[c.key].b; return b.as * (1 + b.asg * (c.level - 1) + SKILLS.yi.r.as); };
+const curMS = c => c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
 function turretAD(t) {
   const c = TURRET_CFG;
   if (t < c.adStart) return c.ad;
@@ -216,12 +244,22 @@ function physMulFor(w, target, pen) {   // pen: 물리관통력(%)
   if (target.kind === 'turret' && gameTime(w) < TURRET_CFG.reductionUntil) m *= (1 - TURRET_CFG.reduction);
   return m;
 }
-function hurt(w, t, a) {
+function hurt(w, t, a, fromTurret) {
+  a *= dmgTakenMul(t, !!fromTurret);      // 명상 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
   t.hp = Math.max(0, t.hp - a);
   if (t.kind === 'dummy') { t.total += a; t.hits.push({ t: w.time, d: a }); t.idle = 0; t.flash = 0.12; }
   return a;
 }
 const dealPhys = (w, c, t, raw) => hurt(w, t, raw * physMulFor(w, t, penPct(c)));
+/* 명상 피해 감소(마스터 이): 0.5초까지 70%, 그 뒤 명상 중·종료 후 0.5초는 레벨별 45~55%. 포탑 피해는 절반 */
+function dmgTakenMul(c, fromTurret) {
+  if (!c || c.kind !== 'champ' || c.key !== 'yi') return 1;
+  const S = SKILLS.yi.w, lvDr = lv => S.dr[Math.min(Math.max(lv, 1), 5) - 1];
+  let dr = 0;
+  if (c.med) dr = c.med.t < S.drFirstT ? S.drFirst : lvDr(c.med.lv);
+  else if (c.medPost > 0) dr = lvDr(c.medLv);
+  return dr > 0 ? 1 - dr * (fromTurret ? S.turretHalf : 1) : 1;
+}
 const dealTrue = (w, t, raw) => hurt(w, t, raw);     // 고정 피해: 방어력·마법저항력·관통력 모두 무시
 
 function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
@@ -229,11 +267,12 @@ function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
   if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); }
   else if (t.kind === 'champ') {
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
+    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
 }
-function addSlow(u, pct, sec) { const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(sec, c ? c.t : 0) }; }
+function addSlow(u, pct, sec) { if (u.hl > 0) return; /* 최후의 전사 중 둔화 면역 */ const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(sec, c ? c.t : 0) }; }
 
 /* 다리우스 패시브: 과다출혈 */
 function applyBleed(w, c, t) {
@@ -298,7 +337,7 @@ function stepMove(w, c, dx, dy) {
    평타
    --------------------------------------------------------------------- */
 function startAttack(w, c, t) {
-  const cyc = 1 / c.stats.as;
+  const cyc = 1 / curAS(c);
   c.atkCd = cyc;
   c.facing = t.x < c.x ? -1 : 1;
   c.atk = { t: 0, wind: cyc * WINDUP, back: cyc * BACKSWING, targetId: t.id, hit: false };
@@ -312,6 +351,7 @@ function strike(w, c, t) {
   const dmg = dealPhys(w, c, t, ad);
   fx(w, { fx: 'slash', x: ex, y: ey, ang, key: c.key, life: c.key === 'darius' ? 0.28 : 0.2 });
   text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
+  if (c.key === 'yi') yiOnHit(w, c, t, false);   // 마스터 이: 패시브 스택·2연속 예약·우주류 추가 피해·일격필살 쿨 감소
   let wUsed = false;
   if (c.wBuff) {   // 스킬 2: 강화된 기본 공격
     c.wBuff = false; wUsed = true;
@@ -330,19 +370,48 @@ function strike(w, c, t) {
    스킬
    --------------------------------------------------------------------- */
 function levelUp(w, c, k) {
-  if (c.dead || c.key !== 'darius' || !SK[k] || c.sp <= 0 || c.sk[k] >= SK[k].max) return;
+  const def = SKILL_KEYS.includes(k) && skillsOf(c) ? skillsOf(c)[k] : null;
+  if (c.dead || !def || c.sp <= 0 || c.sk[k] >= def.max) return;
   c.sk[k]++; c.sp--;
-  text(w, c.x, c.y - px(80), `${SK[k].name} Lv.${c.sk[k]}`, '#ffd23f');
+  text(w, c.x, c.y - px(80), `${def.name} Lv.${c.sk[k]}`, '#ffd23f');
+}
+
+/* 마스터 이 명상 끊기/시작 (A5: 이동·평타 입력, 공중에 뜸·끌려옴, 일격필살 시전으로 끊김. 피해·E·R은 끊지 않음) */
+function endMed(c) {
+  if (!c.med) return;
+  c.medPost = SKILLS.yi.w.postT; c.medLv = c.med.lv; c.med = null;
+}
+function startMed(c) { c.med = { t: 0, lv: c.sk.w, stackT: 0 }; }
+function startAlpha(w, c, tgt) {   // 일격필살: 즉시 사라짐(대상 지정 불가). 타격·등장은 yiAlphaTick
+  const from = { x: c.x, y: c.y };
+  endMed(c);
+  c.untarget = true;
+  c.yq = { t: 0, targetId: tgt.id, hits: 0, from, lv: c.sk.q };
+  fx(w, { fx: 'blink', x: c.x, y: c.y, out: true });
+}
+function castYi(w, c, k, say) {
+  if (c.yq && (k === 'q' || k === 'w')) return;      // 일격필살 중에는 이동·평타·명상·재시전 불가. 우주류 검술·최후의 전사는 가능
+  if (k === 'w' && c.med) { say('이미 명상 중'); return; }
+  let tgt = null;
+  if (k === 'q') { tgt = yiQTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }   // 대상이 없으면 마나·쿨타임 소모 없음
+  const cost = skMana(c, k);
+  if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
+  c.mana -= cost; c.cd[k] = skCd(c, k); c.atk = null;   // 쿨타임은 시전 즉시 시작. 진행 중이던 평타는 취소
+  if (k === 'q') startAlpha(w, c, tgt);
+  else if (k === 'w') startMed(c);
+  else if (k === 'e') c.wuju = SKILLS.yi.e.dur;
+  else { c.hl = SKILLS.yi.r.dur; c.slow = null; }     // 최후의 전사: 기존 둔화 제거, 지속 중 둔화 면역
 }
 
 function castSkill(w, c, k, ang) {
-  if (c.dead || c.key !== 'darius' || !SK[k]) return;
+  if (c.dead || !skillsOf(c) || !SKILL_KEYS.includes(k)) return;
   const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
   const lv = c.sk[k];
   if (c.air > 0 || c.pull) return;
   if (!lv) { say('스킬 레벨 0 · ▲로 레벨업'); return; }
   if (c.cast) return;
   if (c.cd[k] > 0) { say('재사용 대기 중'); return; }
+  if (c.key === 'yi') { castYi(w, c, k, say); return; }
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
   if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }
@@ -409,7 +478,7 @@ function finishCast(w, c, cast) {
     text(w, c.x, c.y - px(75), hit ? '포획!' : '빗나감', hit ? '#ffb04a' : '#b8c4cf', !!hit);
   } else {                   // 녹서스의 단두대: 반드시 명중, 고정 피해
     const t = unitOf(w, cast.targetId);
-    if (!t || t.dead) return;
+    if (!t || t.dead || t.untarget) return;     // 시전 중 대상이 대상 지정 불가가 되면 빗나감
     const stacks = t.bleed ? t.bleed.stacks : 0;
     const total = (SK.r.base + SK.r.ratio * curAD(c)) * (1 + SK.r.perStack * stacks);
     dealTrue(w, t, total);
@@ -423,6 +492,67 @@ function finishCast(w, c, cast) {
 /* ---------------------------------------------------------------------
    챔피언 한 틱
    --------------------------------------------------------------------- */
+/* 마스터 이: 기본 공격 적중 공통 처리(1차 또는 2연속 두 번째). 스택·예약·우주류 추가 고정 피해·일격필살 쿨 감소 */
+function yiOnHit(w, c, t, second) {
+  if (second) c.dstack = Math.min(3, c.dstack + 1);                        // 두 번째 타격도 기본 공격 → 스택 +1, 예약 없음
+  else if (c.dstack >= YI_PASSIVE.every - 1) { c.dstack = 0; c.dhit = { t: YI_PASSIVE.extraDelay, targetId: t.id }; }   // 4번째 공격
+  else c.dstack++;
+  if (c.wuju > 0 && t.hp > 0) {
+    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * curAD(c));
+    text(w, t.x + 12, t.y - px(50), v.toFixed(0), '#fff1a8', true);
+  }
+  if (c.cd.q > 0) c.cd.q = Math.max(0, c.cd.q - SKILLS.yi.q.cdPerHit);
+}
+/* 2연속 공격의 두 번째 타격: 물리 0.5 × 공격력, 기본 공격으로 판정 */
+function yiSecondHit(w, c, t) {
+  const ang = Math.atan2(t.y - c.y, t.x - c.x);
+  const ex = t.x - Math.cos(ang) * px(t.r) * 0.85, ey = t.y - Math.sin(ang) * px(t.r) * 0.85 - 22;
+  const dmg = dealPhys(w, c, t, YI_PASSIVE.ratio * curAD(c));
+  fx(w, { fx: 'slash', x: ex, y: ey, ang, key: 'yi', life: 0.2, extra: true });
+  text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
+  yiOnHit(w, c, t, true);
+  settle(w, t);
+}
+/* 일격필살 진행: 0.2초부터 0.22초 간격으로 4회, 0.9초에 대상 주변에 나타남 */
+function yiAlphaTick(w, c, dt) {
+  const Q = SKILLS.yi.q, y = c.yq;
+  y.t += dt;
+  while (y.hits < Q.hits && y.t >= Q.first + y.hits * Q.gap - EPS) {
+    y.hits++;
+    const t = unitOf(w, y.targetId);
+    if (!t || t.dead) { y.hits = Q.hits; break; }            // 대상이 죽거나 사라지면 남은 타격 취소(등장은 그대로)
+    const ang = Math.atan2(t.y - y.from.y, t.x - y.from.x);
+    const v = dealPhys(w, c, t, (Q.dmg[y.lv - 1] + Q.ratio * curAD(c)) * Q.share);
+    fx(w, { fx: 'yslash', x: t.x, y: t.y - px(20), ang });
+    text(w, t.x - 10, t.y - px(60), v < 10 ? v.toFixed(1) : v.toFixed(0), '#ffe2a8', true);
+    settle(w, t);
+  }
+  if (y.t >= Q.appear - EPS) yiAppear(w, c);
+}
+/* 등장: 시전 위치 반대편 방향으로 대상 히트박스 + 내 히트박스×0.8 + 12 떨어진 곳(걸을 수 있는 곳) */
+function yiAppear(w, c) {
+  const y = c.yq, t = unitOf(w, y.targetId);
+  const tx = t ? t.x : y.from.x, ty = t ? t.y : y.from.y, tr = t ? t.r : 0;
+  let dx = tx - y.from.x, dy = ty - y.from.y, d = Math.hypot(dx, dy);
+  if (d < 1e-6) { dx = c.facing; dy = 0; d = 1; }
+  const stop = px(tr + HIT_R * 0.8 + 12);
+  const p = safePoint({ x: tx, y: ty }, { x: tx + dx / d * stop, y: ty + dy / d * stop }, canStand);
+  c.x = p.x; c.y = p.y;
+  c.untarget = false; c.yq = null;
+  c.facing = tx < c.x ? -1 : 1;
+  fx(w, { fx: 'blink', x: c.x, y: c.y, out: false });
+}
+/* 명상 한 틱: 끊김 판정(A5) → 회복 · 1초마다 스택 · 4초 후 종료 */
+function yiMedTick(w, c, dt) {
+  const S = SKILLS.yi.w, m = c.med;
+  if (c.in.mx || c.in.my || c.in.atk || c.air > 0 || c.pull) { endMed(c); return; }
+  m.t += dt; m.stackT += dt;
+  if (m.stackT >= 1 - EPS) { m.stackT -= 1; c.dstack = Math.min(3, c.dstack + 1); }
+  const heal = (S.heal[m.lv - 1] + S.apRatio * c.stats.ap) * (1 + (c.stats.maxHp - c.hp) / c.stats.maxHp) * dt;
+  c.hp = Math.min(c.stats.maxHp, c.hp + heal);
+  if (m.t >= S.dur - EPS) endMed(c);
+}
+
 function respawn(w, c) {
   const keep = { sk: c.sk, sp: c.sp, in: c.in };
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
@@ -434,12 +564,13 @@ function updateChamp(w, c, dt) {
   c.hp = Math.min(s.maxHp, c.hp + s.regen / 5 * dt);              // 체력 재생: 5초당 수치만큼
   c.mana = Math.min(s.maxMana, c.mana + s.manaRegen / 5 * dt);    // 마나 재생: 5초당 수치만큼
   c.might = Math.max(0, c.might - dt);
+  c.medPost = Math.max(0, c.medPost - dt);
   tickStatus(w, c, dt);
   if (c.dead) return;
 
   // 공중에 뜸 / 끌려오는 중: 하려던 모든 행동이 취소되고 아무 행동도 할 수 없음 (피격은 그대로)
   const locked = c.air > 0 || !!c.pull;
-  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; }
+  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소
   for (const k of SKILL_KEYS) c.cd[k] = Math.max(0, c.cd[k] - dt);
 
   // 학살 준비 → 휘두르기
@@ -447,7 +578,7 @@ function updateChamp(w, c, dt) {
   // 평타 선딜 → 타격 → 후딜
   if (c.atk) {
     const a = c.atk; a.t += dt;
-    if (!a.hit && a.t >= a.wind) { a.hit = true; const t = unitOf(w, a.targetId); if (t && !t.dead) strike(w, c, t); }
+    if (!a.hit && a.t >= a.wind) { a.hit = true; const t = unitOf(w, a.targetId); if (t && !t.dead && !t.untarget) strike(w, c, t); }
     if (a.t >= a.wind + a.back) c.atk = null;
   }
   // 시전 시간(포획, 단두대): 시전 중에는 이동 불가
@@ -458,12 +589,19 @@ function updateChamp(w, c, dt) {
   }
   if (c.dead) return;
 
+  // 마스터 이: 일격필살 진행 · 2연속 두 번째 타격 대기 · 명상 · 우주류/최후의 전사 타이머
+  if (c.yq) yiAlphaTick(w, c, dt);
+  if (c.dhit) { c.dhit.t -= dt; if (c.dhit.t <= EPS) { const h = c.dhit; c.dhit = null; const t = unitOf(w, h.targetId); if (t && !t.dead && !t.untarget) yiSecondHit(w, c, t); } }
+  if (c.med) yiMedTick(w, c, dt);
+  if (c.wuju > 0 && !c.med && !c.yq) c.wuju = Math.max(0, c.wuju - dt);   // 명상·일격필살 중에는 줄지 않음
+  c.hl = Math.max(0, c.hl - dt);
+
   // 이동
   let mx = c.in.mx, my = c.in.my;
-  if (c.atk || c.cast || locked) { mx = 0; my = 0; }              // 평타·시전 중, 공중에 뜬 동안에는 멈춤
+  if (c.atk || c.cast || locked || c.yq || c.med) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상 중, 공중에 뜬 동안에는 멈춤
   c.moving = !!(mx || my);
   if (c.moving) {
-    const sp = px(s.ms) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
+    const sp = px(curMS(c)) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
     stepMove(w, c, mx * sp, my * sp);
     if (Math.abs(mx) > 0.15) c.facing = mx < 0 ? -1 : 1;
   }
@@ -471,7 +609,7 @@ function updateChamp(w, c, dt) {
   // 평타 입력
   c.atkCd = Math.max(0, c.atkCd - dt);
   c.noTgt = Math.max(0, c.noTgt - dt);
-  if (!locked && !c.cast && c.in.atk) {
+  if (!locked && !c.cast && !c.yq && c.in.atk) {
     const t = targetInRange(w, c);
     if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
     else if (c.in.edge && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
@@ -504,14 +642,14 @@ function updateTurret(w, t, dt) {
   if (t.dead) { t.deadT += dt; return; }
   t.cd = Math.max(0, t.cd - dt);
   let tgt = t.targetId ? champOf(w, t.targetId) : null;
-  if (tgt && (tgt.dead || edgeDist(t, tgt) > px(c.range))) {
-    if (t.warn > 0 && !t.locked && !tgt.dead) text(w, tgt.x, tgt.y - px(40), '회피', '#9fd3ff');
+  if (tgt && (tgt.dead || tgt.untarget || edgeDist(t, tgt) > px(c.range))) {   // 대상 지정 불가가 되면 조준 해제(날아가던 투사체도 사라짐)
+    if (t.warn > 0 && !t.locked && !tgt.dead && !tgt.untarget) text(w, tgt.x, tgt.y - px(40), '회피', '#9fd3ff');
     resetTurretLock(t); tgt = null;
   }
   if (!tgt) {   // 사거리 안의 가장 가까운 적 챔피언을 조준
     let bd = Infinity;
     for (const u of w.champs) {
-      if (u.team === t.team || u.dead) continue;
+      if (u.team === t.team || u.dead || u.untarget) continue;
       const d = edgeDist(t, u);
       if (d <= px(c.range) && d < bd) { bd = d; tgt = u; }
     }
@@ -527,8 +665,8 @@ function updateTurret(w, t, dt) {
       t.shot = null;
       const eff = tgt.stats.armor * (1 - c.pen);
       const dmg = turretAD(gameTime(w)) * (1 + c.stackBonus * t.stacks) * dmgMul(eff);
-      hurt(w, tgt, dmg);
-      text(w, tgt.x, tgt.y - px(40), dmg.toFixed(0), '#ff6b6b', true);
+      const got = hurt(w, tgt, dmg, true);     // 포탑 피해: 명상 피해 감소는 절반
+      text(w, tgt.x, tgt.y - px(40), got.toFixed(0), '#ff6b6b', true);
       t.stacks = Math.min(c.stackMax, t.stacks + 1);
       if (settle(w, tgt)) resetTurretLock(t);
     }
@@ -583,6 +721,8 @@ return {
   setMap, isWalk, canStand, createWorld, step, drainEvents, calcStats,
   // 조회
   px, gameTime, champOf, unitOf, isChampLike, edgeDist, enemiesOf, targetInRange, ultTarget, autoAim, dummyDps,
-  buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD
+  buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD,
+  // 마스터 이 (화면 전용 조회)
+  SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget
 };
 });
