@@ -96,6 +96,12 @@ button { font: inherit; color: inherit; }
   #atk .lbl { font-size: 16px; }
 }
 @media (max-width: 620px) { #actions { --k: .72; --sz: 42px; } }
+/* 스킬 취소: 스킬을 누른 채로 끌어서 X에 놓으면 시전 취소 */
+#skCancel { position: absolute; top: 84px; right: max(26px, env(safe-area-inset-right, 0px)); width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; background: rgba(10,16,23,.78); border: 2px solid rgba(240,230,210,.55); color: var(--gold-hi); pointer-events: none; transition: transform .08s, background .08s, border-color .08s; }
+#skCancel svg { width: 28px; height: 28px; }
+#skCancel span { position: absolute; top: calc(100% + 4px); font-size: 11px; white-space: nowrap; color: var(--gold-hi); text-shadow: 0 1px 2px #000; }
+#skCancel.over { transform: scale(1.18); background: rgba(190,30,45,.9); border-color: #ff9aa2; color: #fff; }
+@media (max-height: 430px) { #skCancel { top: 74px; width: 54px; height: 54px; } }
 /* 스킬 버튼: 평타 버튼 둘레에 부채꼴로 배치 */
 .skw { position: absolute; left: calc(50% + var(--dx) * var(--k) * 1px); top: calc(50% + var(--dy) * var(--k) * 1px); width: var(--sz); height: var(--sz); transform: translate(-50%, -50%); }
 .sk { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #2a3a4c, #0e151d); border: 2.5px solid var(--gold); color: var(--gold-hi); cursor: pointer; touch-action: none; overflow: hidden; --cd: 0; box-shadow: 0 3px 12px rgba(0,0,0,.6); transition: transform .08s; }
@@ -265,6 +271,7 @@ button { font: inherit; color: inherit; }
     </aside>
 
     <div id="joy" role="application" aria-label="이동 조이스틱"><div id="knob"></div></div>
+    <div id="skCancel" hidden aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>여기에 놓으면 취소</span></div>
     <div id="actions">
     <button id="atk" type="button" aria-label="평타">
       <span class="lbl">

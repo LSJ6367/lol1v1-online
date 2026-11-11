@@ -149,6 +149,12 @@ pBtn.addEventListener('pointerup', tipOff); pBtn.addEventListener('pointercancel
 pBtn.addEventListener('contextmenu', e => e.preventDefault());
 
 /* ---------- 스킬 버튼 (탭: 즉시 시전 / 길게 누름: 범위 표시 후 손을 떼면 시전) ---------- */
+const skCancel = $('#skCancel');
+function overCancel(x, y) {   // X 아이콘 위인지(손가락이라 12px 여유)
+  if (skCancel.hidden) return false;
+  const r = skCancel.getBoundingClientRect(), m = 12;
+  return x >= r.left - m && x <= r.right + m && y >= r.top - m && y <= r.bottom + m;
+}
 const held = {};   // 누르고 있는 스킬 버튼 { id, sx, sy, t, dragged, ang, show }  (조준은 클라이언트에서만)
 const skW = {};
 for (const k of SKILL_KEYS) {
@@ -157,18 +163,19 @@ for (const k of SKILL_KEYS) {
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
     const me = ME(); if (!me || me.dead) return;
-    held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false };
+    held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
     b.setPointerCapture(e.pointerId); e.preventDefault();
   });
   b.addEventListener('pointermove', e => {
     const h = held[k]; if (!h || h.id !== e.pointerId) return;
     const dx = e.clientX - h.sx, dy = e.clientY - h.sy;
     if (Math.hypot(dx, dy) > 14) { h.dragged = true; h.ang = Math.atan2(dy, dx); }
+    h.cancel = overCancel(e.clientX, e.clientY);
   });
   const up = (e, cancel) => {
     const h = held[k]; if (!h || h.id !== e.pointerId) return;
     delete held[k];
-    if (!cancel) castSkill(k, h.dragged ? h.ang : autoAng(k === 'e'));
+    if (!cancel && !overCancel(e.clientX, e.clientY)) castSkill(k, h.dragged ? h.ang : autoAng(k === 'e'));
   };
   b.addEventListener('pointerup', e => up(e, false)); b.addEventListener('pointercancel', e => up(e, true));
   b.addEventListener('contextmenu', e => e.preventDefault());
@@ -188,6 +195,11 @@ function refreshSkills() {
     set('nm', lv > 0 && me.mana < Core.skMana(me, k), v => o.b.classList.toggle('nomana', v));
     set('hold', !!(held[k] && held[k].show), v => o.b.classList.toggle('hold', v));
   }
+  // 스킬을 누른 채 조준 중일 때만 X(취소) 표시
+  let aiming = false, inX = false;
+  for (const k in held) { const h = held[k]; if (h.show || h.dragged) aiming = true; if (h.cancel) inX = true; }
+  if (skCancel.hidden === aiming) skCancel.hidden = !aiming;
+  skCancel.classList.toggle('over', aiming && inX);
 }
 
 /* ---------- 테스트 도구 ---------- */
@@ -415,7 +427,7 @@ function drawDummyBar(d) {
 
 /* 스킬 범위 표시 */
 function aimInfo(me) {   // 길게 누르는 중인 스킬의 예상 범위
-  for (const k in held) if (held[k].show && me.sk[k] > 0) return { k, ang: held[k].dragged ? held[k].ang : autoAng(k === 'e') };
+  for (const k in held) if (held[k].show && me.sk[k] > 0) return { k, ang: held[k].dragged ? held[k].ang : autoAng(k === 'e'), cancel: held[k].cancel };
   return null;
 }
 function drawSkillWorld(me) {
@@ -438,6 +450,7 @@ function drawSkillWorld(me) {
   const [x, y] = P2(me);
   ctx.save();
   ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.lineWidth = 2.2; ctx.fillStyle = 'rgba(120,215,255,.10)';
+  if (a.cancel) { ctx.strokeStyle = 'rgba(255,90,100,.9)'; ctx.fillStyle = 'rgba(255,60,70,.10)'; ctx.setLineDash([6, 5]); }   // 취소 위: 빨간 점선
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `600 9px ${FONT}`;
   if (a.k === 'q') {   // 안쪽 = 도끼 자루, 바깥 띠 = 도끼날
     ctx.beginPath(); ctx.arc(x, y, Ro, 0, 7); ctx.fill(); ctx.stroke();
