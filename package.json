@@ -1,0 +1,14 @@
+{
+  "name": "lol1v1-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "1v1 browser game: authoritative Node server (no dependencies)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "node tools/build.js",
+    "test": "node test/core.test.js && node test/protocol.test.js && node test/server.test.js && node test/session_online.test.js"
+  }
+}
