@@ -21,11 +21,12 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 1;
+const VERSION = 2;
 const TICK_HZ = 60;
-const SNAP_EVERY = 3;          // 3틱마다 스냅샷 → 초당 20회
-const INTERP_TICKS = 6;        // 다른 유닛은 100ms 과거 시점을 보간해서 그림
+const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
+const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
 const MAX_QUEUE = 10;          // 서버 프레임 큐 최대 길이(넘치면 오래된 것부터 버림)
+const QUEUE_TARGET = 3;        // 매 틱 큐가 이보다 길면 밀린 프레임을 합쳐서 바로 따라잡음(입력 지연이 쌓이지 않게)
 const MAX_FRAMES_PER_SEC = 90; // 이보다 많이 보내면 초과분 무시(남용 방지)
 const COUNTDOWN_SEC = 3;       // 둘 다 준비 → 3초 후 시작
 const RECONNECT_SEC = 0;       // (다음 단계) 재접속 유예. 지금은 끊기면 상대 승리
@@ -135,7 +136,7 @@ const encode = msg => JSON.stringify(msg);
 function decode(text) { try { const m = JSON.parse(text); return m && typeof m === 'object' && typeof m.t === 'string' ? m : null; } catch (e) { return null; } }
 
 return {
-  VERSION, TICK_HZ, SNAP_EVERY, INTERP_TICKS, MAX_QUEUE, MAX_FRAMES_PER_SEC, COUNTDOWN_SEC, RECONNECT_SEC,
+  VERSION, TICK_HZ, SNAP_EVERY, INTERP_TICKS, MAX_QUEUE, QUEUE_TARGET, MAX_FRAMES_PER_SEC, COUNTDOWN_SEC, RECONNECT_SEC,
   ROOM_CODE_CHARS, ROOM_CODE_LEN, NAME_MAX, WIN, CHAMP_KEYS, SKILLS, DEV_OPS,
   sanitizeFrame, frameToCmds, mergeDropped, slimWorld, restoreWorld, eventsFor, makeRoomCode, normName, encode, decode
 };

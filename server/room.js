@@ -117,6 +117,8 @@ class Room {
     const world = this.world;
     const cmds = [];
     for (const p of this.players) {
+      // 밀린 입력 따라잡기: 목표보다 길면 오래된 프레임을 다음 프레임에 합침(이동은 최신값, 스킬·레벨업은 보존)
+      while (p.queue.length > P.QUEUE_TARGET) { const d = p.queue.shift(); p.queue[0] = P.mergeDropped(d, p.queue[0]); }
       if (p.queue.length) {
         const f = p.queue.shift();
         for (const c of P.frameToCmds(p.pid, f)) cmds.push(c);

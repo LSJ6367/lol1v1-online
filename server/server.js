@@ -179,7 +179,9 @@ function start(opts) {
   /* 전역 게임 루프: 실제 경과 시간을 모아 1/60초 틱을 돌리고, 카운트다운을 진행 */
   const STEP = 1 / P.TICK_HZ;
   let last = process.hrtime.bigint(), acc = 0;
-  const loop = setInterval(() => {
+  let loop = null;
+  const run = () => {
+    if (stopped) return;
     const now = process.hrtime.bigint();
     const dt = Number(now - last) / 1e9;
     last = now;
@@ -189,12 +191,15 @@ function start(opts) {
     if (acc >= STEP) acc = 0;                 // 너무 밀리면 따라잡기를 포기하고 시간을 버림
     for (const room of Array.from(rooms.values())) room.update(dt);
     for (const room of Array.from(rooms.values())) for (let i = 0; i < n; i++) room.tick();
-  }, 4);
+    // 다음 틱 시각에 맞춰 깨어남(약한 CPU에서도 가볍게). 최소 1ms
+    loop = setTimeout(run, Math.max(1, Math.floor((STEP - acc) * 1000)));
+  };
+  loop = setTimeout(run, 1);
 
   function close() {
     if (stopped) return Promise.resolve();
     stopped = true;
-    clearInterval(loop);
+    clearTimeout(loop);
     rooms.clear();
     for (const s of Array.from(sessions)) s.conn.terminate();
     sessions.clear();
