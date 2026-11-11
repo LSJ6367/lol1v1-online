@@ -310,7 +310,7 @@ function strike(w, c, t) {
   c.lunge = 1; c.lungeDir = [Math.cos(ang), Math.sin(ang)];
   const ex = t.x - Math.cos(ang) * px(t.r) * 0.85, ey = t.y - Math.sin(ang) * px(t.r) * 0.85 - 22;
   const dmg = dealPhys(w, c, t, ad);
-  fx(w, { fx: 'slash', x: ex, y: ey, ang, life: 0.2 });
+  fx(w, { fx: 'slash', x: ex, y: ey, ang, key: c.key, life: c.key === 'darius' ? 0.28 : 0.2 });
   text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
   let wUsed = false;
   if (c.wBuff) {   // 스킬 2: 강화된 기본 공격

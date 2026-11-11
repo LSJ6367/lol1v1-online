@@ -458,7 +458,24 @@ function drawSkillWorld(me) {
 function drawFx() {
   for (const f of fxList) {
     const p = f.t / f.life; ctx.save(); ctx.lineCap = 'round'; ctx.globalAlpha = 1 - p;
-    if (f.fx === 'slash') {
+    if (f.fx === 'slash' && f.key === 'darius') {   // 다리우스 평타: 붉은 도끼 베기(굵은 초승달 + 피 튀김)
+      const a0 = f.ang - 1.25, sw = 2.5 * Math.min(1, p * 2.2), R = 24;
+      ctx.translate(f.x, f.y); ctx.globalAlpha = 1 - p * p;
+      ctx.lineWidth = 11; ctx.strokeStyle = 'rgba(150,0,15,.55)';
+      ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
+      ctx.lineWidth = 6; ctx.strokeStyle = '#ff2b3d';
+      ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = '#ffd6d9';
+      ctx.beginPath(); ctx.arc(0, 0, R - 1, a0 + sw * 0.25, a0 + sw); ctx.stroke();
+      if (p > 0.15) {   // 맞은 자리에서 튀는 핏방울
+        const q = (p - 0.15) / 0.85;
+        ctx.fillStyle = '#e0142a';
+        for (let i = 0; i < 6; i++) {
+          const a = f.ang + (i - 2.5) * 0.32, d = 6 + q * (14 + (i % 3) * 6), r = 2.6 * (1 - q) + 0.6;
+          ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d + q * q * 6, r, 0, 7); ctx.fill();
+        }
+      }
+    } else if (f.fx === 'slash') {
       ctx.translate(f.x, f.y); ctx.lineWidth = 3.2; ctx.strokeStyle = '#fff2c9';
       ctx.beginPath(); ctx.arc(0, 0, 17, f.ang - 1.0, f.ang - 1.0 + 2.0 * Math.min(1, p * 1.6)); ctx.stroke();
     } else if (f.fx === 'sweep') {   // 학살: 빨간 이펙트로 한 바퀴
