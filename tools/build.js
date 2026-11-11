@@ -38,7 +38,9 @@ function render(opts) {
   };
   const assetsJson = safeScript(JSON.stringify(assets));
   const scripts = SCRIPTS.map(p => `<script>\n${safeScript(read(p))}\n</script>`).join('\n');
-  const body = tpl.replace('__ASSETS_JSON__', () => assetsJson).replace('__SCRIPTS__', () => scripts);
+  // 버전 번호: 코드·화면·자산 내용으로 만든 6글자. 내용이 바뀌면 번호도 바뀐다(같은 내용이면 언제 빌드해도 같음)
+  const buildId = require('crypto').createHash('sha1').update(tpl).update(scripts).update(assetsJson).digest('hex').slice(0, 6).toUpperCase();
+  const body = tpl.replace('__ASSETS_JSON__', () => assetsJson).replace('__SCRIPTS__', () => scripts).replace('__BUILD__', buildId);
   // 문서 골격 + 모바일 화면 설정(viewport, 구글 스크립트 페이지는 Apps Script 가 addMetaTag 로 넣으므로 뺀다) + 기본 초기화
   const head = '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n' +
     (opts.viewport === false ? '' : VIEWPORT) +
@@ -57,6 +59,8 @@ function build() {
   return out;
 }
 
-module.exports = { build, render, SCRIPTS };
+function buildId() { return (render().match(/버전 <b>([0-9A-F]{6})<\/b>/) || [])[1]; }
 
-if (require.main === module) { build(); require('./build_gas.js').build(); }   // 구글 스크립트용 gas/game.html 도 같이
+module.exports = { build, render, buildId, SCRIPTS };
+
+if (require.main === module) { build(); require('./build_gas.js').build(); console.log('버전 ' + buildId()); }   // 구글 스크립트용 gas/game.html 도 같이

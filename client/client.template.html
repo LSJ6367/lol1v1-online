@@ -171,6 +171,8 @@ button { font: inherit; color: inherit; }
 .exitRow { margin-top: 8px; }
 @media (max-height: 430px) { .screen { gap: 10px; padding-top: 10px; padding-bottom: 10px; } .code { font-size: 30px; margin: 2px 0; } .panel { padding: 12px; gap: 9px; } .screen h1 { font-size: 24px; } }
 @media (max-height: 430px) { #room { gap: 8px; } #room .hint { display: none; } .players li { padding: 5px 10px; } #roomCards { gap: 8px; } #roomCards .card { padding: 6px 8px; } #roomCards .card .art { height: 52px; } #roomCards .card .art img { max-height: 50px; } #roomCards .card h2 { font-size: 16px; } .countdown { font-size: 22px; } .roomActions .go, .roomActions .ghost { padding: 7px 16px; font-size: 14px; } .resBox { padding: 16px 16px 12px; } .resTitle { font-size: 32px; } }
+.buildVer { margin: 0; font-size: 12px; color: var(--muted, #8a93a0); letter-spacing: .04em; text-align: center; }
+.buildVer b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gold-hi, #f0e6d2); }
 </style>
 
 <div id="app">
@@ -206,6 +208,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
+    <p class="buildVer">버전 <b>__BUILD__</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
