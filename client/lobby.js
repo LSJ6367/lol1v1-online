@@ -15,7 +15,7 @@ const REASON_TEXT = {
 };
 const ERR_TEXT = {
   room_not_found: '방을 찾을 수 없어요', room_full: '방이 가득 찼어요', bad_state: '이미 게임 중인 방이에요',
-  bad_version: '클라이언트 버전이 맞지 않아요', bad_msg: '잘못된 요청이에요',
+  bad_version: '새 버전이 나왔어요. 페이지를 새로고침해 주세요', bad_msg: '잘못된 요청이에요',
 };
 const CHAMP = id => (id && Core.CHAMPS[id]) ? Core.CHAMPS[id].name : '챔피언 미선택';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
