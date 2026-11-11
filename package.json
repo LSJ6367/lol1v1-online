@@ -9,6 +9,6 @@
   "scripts": {
     "start": "node server/server.js",
     "build": "node tools/build.js",
-    "test": "node test/core.test.js && node test/protocol.test.js && node test/server.test.js && node test/session_online.test.js"
+    "test": "node test/core.test.js && node test/passive.test.js && node test/protocol.test.js && node test/server.test.js && node test/session_online.test.js"
   }
 }
