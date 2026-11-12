@@ -65,6 +65,10 @@ const BLEED = { dur: 5, max: 5, base: 13, perLvl: 1, ratio: 0.3, buffBase: 30, b
 /* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 */
 const WINDUP = 0.22, BACKSWING = 0.13;
 
+/* 평타 자동 추적 (docs/spec/attack-chase.md). search: 찾는 거리(히트박스 끝 기준, 유닛).
+   추적 중 대상이 search + 300 유닛보다 멀어지면 포기 */
+const CHASE = { search: 1200 };
+
 /* 다리우스 액티브 스킬. 배열은 스킬 레벨 순서(1~5). 거리 단위는 유닛 */
 const SK = {
   q: { name: '학살', max: 5, prep: 0.75, rIn: 205, rOut: 425, heal: 0.17, healMax: 0.51,
@@ -149,7 +153,8 @@ function makeChamp(id, key, team) {
     wBuff: false, cast: null, qPrep: null,
     air: 0, airMax: 1, slow: null, pull: null, pendSlow: false, bleed: null,
     dead: false, respawn: 0,
-    dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0
+    dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0,
+    chase: null, chaseHold: false                     // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
   };
 }
 function makeDummy(id, team) {
@@ -181,12 +186,27 @@ const edgeDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - px(a.r) - px(b.r);
 function enemiesOf(w, c) {
   return [].concat(w.champs, w.dummies, w.turrets).filter(u => u.team !== c.team && alive(u) && !u.untarget);
 }
+const atkRange = c => px(c.stats.range + (c.wBuff ? SK.w.rangeBonus : 0));   // 평타 사거리(픽셀). 대상 선택과 자동 추적이 같이 씀
 function targetInRange(w, c) {
-  const range = px(c.stats.range + (c.wBuff ? SK.w.rangeBonus : 0));
+  const range = atkRange(c);
   let best = null, bd = Infinity;
   for (const u of enemiesOf(w, c)) { const d = edgeDist(u, c); if (d <= range && d < bd) { best = u; bd = d; } }
   return best;
 }
+/* 자동 추적 대상: 찾는 거리(CHASE.search) 안의 가장 가까운 적 챔피언. 적 챔피언이 하나도 없으면 가장 가까운 더미(연습용) */
+function chaseTarget(w, c) {
+  const lim = px(CHASE.search);
+  let champ = null, bc = Infinity, dummy = null, bdm = Infinity;
+  for (const u of enemiesOf(w, c)) {
+    const d = edgeDist(u, c);
+    if (d > lim) continue;
+    if (u.kind === 'champ') { if (d < bc) { champ = u; bc = d; } }
+    else if (u.kind === 'dummy') { if (d < bdm) { dummy = u; bdm = d; } }
+  }
+  return champ || dummy;
+}
+/* 추적 중 플레이어가 조이스틱·스킬로 취소: 평타 버튼을 뗄 때까지 다시 추적하지 않음(누르고 있는 채로 곧바로 되살아나지 않게) */
+function cancelChase(c) { if (c.chase) { c.chase = null; c.chaseHold = true; } }
 function ultTarget(w, c) {
   let best = null, bd = Infinity;
   for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SK.r.range) && d < bd) { best = u; bd = d; } }
@@ -267,7 +287,7 @@ function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
   if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); }
   else if (t.kind === 'champ') {
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
-    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null;
+    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.chase = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
@@ -339,6 +359,7 @@ function stepMove(w, c, dx, dy) {
 function startAttack(w, c, t) {
   const cyc = 1 / curAS(c);
   c.atkCd = cyc;
+  c.chase = null;                  // 평타가 시작되면 자동 추적은 끝남 (추적으로 시작했든, 사거리 안 대상으로 시작했든)
   c.facing = t.x < c.x ? -1 : 1;
   c.atk = { t: 0, wind: cyc * WINDUP, back: cyc * BACKSWING, targetId: t.id, hit: false };
 }
@@ -396,7 +417,7 @@ function castYi(w, c, k, say) {
   if (k === 'q') { tgt = yiQTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }   // 대상이 없으면 마나·쿨타임 소모 없음
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
-  c.mana -= cost; c.cd[k] = skCd(c, k); c.atk = null;   // 쿨타임은 시전 즉시 시작. 진행 중이던 평타는 취소
+  c.mana -= cost; c.cd[k] = skCd(c, k); c.atk = null; cancelChase(c);   // 쿨타임은 시전 즉시 시작. 진행 중이던 평타와 평타 추적은 취소
   if (k === 'q') startAlpha(w, c, tgt);
   else if (k === 'w') startMed(c);
   else if (k === 'e') c.wuju = SKILLS.yi.e.dur;
@@ -419,7 +440,7 @@ function castSkill(w, c, k, ang) {
   let tgt = null;
   if (k === 'r') { tgt = ultTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }
   c.mana -= cost; c.cd[k] = skCd(c, k);
-  c.atk = null;                                       // 스킬을 쓰면 진행 중이던 평타 동작은 취소
+  c.atk = null; cancelChase(c);                       // 스킬을 쓰면 진행 중이던 평타 동작과 평타 추적은 취소
   if (k === 'e') c.facing = Math.cos(ang) < 0 ? -1 : 1;
   if (k === 'q') {                                    // 준비 시간 후 휘두름. 준비 중에도 이동 가능
     c.qPrep = { t: 0, dur: SK.q.prep, lv };
@@ -561,6 +582,20 @@ function respawn(w, c) {
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
 }
 
+/* 평타 추적 한 틱. 취소 조건(조이스틱 입력, 끌려감·공중, 대상 없음·죽음·대상 지정 불가, search+300 밖)이면 추적을 끊고 null
+   → 이동은 조이스틱대로. 사거리 안이면 (평타 가능할 때) 평타를 시작하고 추적 종료. 아니면 대상 쪽 단위 방향 {dx,dy}를 돌려줌 */
+function chaseTick(w, c, locked) {
+  const t = unitOf(w, c.chase.targetId);
+  if (c.in.mx || c.in.my) { cancelChase(c); return null; }                         // 조이스틱: 취소(버튼을 뗄 때까지 재추적 금지)
+  if (locked || !t || t.dead || t.untarget || edgeDist(t, c) > px(CHASE.search + 300)) { c.chase = null; return null; }
+  if (edgeDist(t, c) <= atkRange(c)) {
+    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
+    return { dx: 0, dy: 0 };
+  }
+  const dx = t.x - c.x, dy = t.y - c.y, d = Math.hypot(dx, dy) || 1;
+  return { dx: dx / d, dy: dy / d };
+}
+
 function updateChamp(w, c, dt) {
   if (c.dead) { c.respawn -= dt; if (c.respawn <= 0) respawn(w, c); return; }
   const s = c.stats;
@@ -599,8 +634,13 @@ function updateChamp(w, c, dt) {
   if (c.wuju > 0 && !c.med && !c.yq) c.wuju = Math.max(0, c.wuju - dt);   // 명상·일격필살 중에는 줄지 않음
   c.hl = Math.max(0, c.hl - dt);
 
-  // 이동
+  // 평타 쿨타임 · 대상 없음 텍스트 쿨타임 (추적 판정이 쿨타임을 보므로 이동 전에 줄임)
+  c.atkCd = Math.max(0, c.atkCd - dt);
+  c.noTgt = Math.max(0, c.noTgt - dt);
+
+  // 이동 (평타 추적 중이면 이번 틱 방향은 대상 쪽. 추적이 사거리 안에서 평타를 시작하면 아래 잠금에 의해 멈춤)
   let mx = c.in.mx, my = c.in.my;
+  if (c.chase) { const ch = chaseTick(w, c, locked); if (ch) { mx = ch.dx; my = ch.dy; } }
   if (c.atk || c.cast || locked || c.yq || c.med) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상 중, 공중에 뜬 동안에는 멈춤
   c.moving = !!(mx || my);
   if (c.moving) {
@@ -610,12 +650,17 @@ function updateChamp(w, c, dt) {
   }
 
   // 평타 입력
-  c.atkCd = Math.max(0, c.atkCd - dt);
-  c.noTgt = Math.max(0, c.noTgt - dt);
+  if (!c.in.atk) c.chaseHold = false;                  // 평타 버튼을 떼면 재추적 금지 해제
   if (!locked && !c.cast && !c.yq && c.in.atk) {
-    const t = targetInRange(w, c);
-    if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
-    else if (c.in.edge && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
+    const t = c.chase ? null : targetInRange(w, c);   // 추적 중에는 쫓는 챔피언만 노림(가는 길에 포탑·허수아비가 사거리에 들어와도 무시)
+    if (c.chase) { /* chaseTick이 처리 */ }
+    else if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
+    else {
+      if (c.in.edge) fx(w, { fx: 'atkRange', owner: c.id, life: 0.6 });   // 사거리 표시: 대상 없이 누른 순간에만 (추적과 무관)
+      const g = !c.chase && !c.atk && !c.chaseHold ? chaseTarget(w, c) : null;
+      if (g) { if (!(c.in.mx || c.in.my)) c.chase = { targetId: g.id }; }   // 조이스틱을 쥔 채 누르면 추적을 시작하지 않음(곧바로 취소되므로)
+      else if (c.in.edge && !c.chase && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
+    }
   }
   c.in.edge = false;
   c.lunge = Math.max(0, c.lunge - dt / 0.16);
@@ -719,11 +764,11 @@ function step(w, cmds) {
 
 return {
   // 데이터
-  TICK, MAP_W, MAP_H, U, HIT_R, START_LEVEL, RESPAWN_SEC, SPAWNS, HOME, TURRET_CFG, CHAMPS, BLEED, WINDUP, BACKSWING, SK, SKILL_KEYS,
+  TICK, MAP_W, MAP_H, U, HIT_R, START_LEVEL, RESPAWN_SEC, SPAWNS, HOME, TURRET_CFG, CHAMPS, BLEED, WINDUP, BACKSWING, SK, SKILL_KEYS, CHASE,
   // 규칙
   setMap, isWalk, canStand, createWorld, step, drainEvents, calcStats,
   // 조회
-  px, gameTime, champOf, unitOf, isChampLike, edgeDist, enemiesOf, targetInRange, ultTarget, autoAim, dummyDps,
+  px, gameTime, champOf, unitOf, isChampLike, edgeDist, enemiesOf, targetInRange, chaseTarget, ultTarget, autoAim, dummyDps,
   buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD,
   // 마스터 이 (화면 전용 조회)
   SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget

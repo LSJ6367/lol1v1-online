@@ -338,6 +338,7 @@ function handleEvents() {
   for (const ev of session.drainEvents()) {
     if (ev.type === 'text') { if (!ev.to || ev.to === myId) texts.push({ x: ev.x, y: ev.y, txt: ev.txt, color: ev.color, big: ev.big, t: 0, life: 0.9, dx: (Math.random() - .5) * 10 }); }
     else if (ev.type === 'fx') {
+      if (ev.fx === 'atkRange' && ev.owner !== myId) continue;   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
       const o = Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 });
       if (o.fx === 'yslash') o.dir = o.ang + Math.PI / 2 + YSLASH_OFF[yslashN++ % YSLASH_OFF.length];
       fxList.push(o);
@@ -619,6 +620,14 @@ function drawSkillWorld(me) {
   }
   ctx.restore();
 }
+/* 평타 추적 중인 대상 표시(내 화면에만): 대상 발밑의 하늘색 점선 원 */
+function drawChaseMarker(me) {
+  if (!me.chase || me.dead) return;
+  const t = Core.unitOf(W(), me.chase.targetId); if (!t || t.dead) return;
+  const [x, y] = P2(t);
+  ctx.save(); ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.arc(x, y, px(t.r) + 5, 0, 7); ctx.stroke(); ctx.restore();
+}
 function drawFx() {
   for (const f of fxList) {
     const p = f.t / f.life; ctx.save(); ctx.lineCap = 'round'; ctx.globalAlpha = 1 - p;
@@ -697,6 +706,13 @@ function drawFx() {
     } else if (f.fx === 'fan') {     // 포획: 도끼를 던지는 부채꼴
       ctx.translate(f.x, f.y); ctx.fillStyle = 'rgba(255,170,60,.25)'; ctx.strokeStyle = 'rgba(255,190,90,.9)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, f.range * Math.min(1, p * 2.5), f.ang - f.half, f.ang + f.half); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (f.fx === 'atkRange') {   // 평타 사거리(내 챔피언만, handleEvents에서 거름): 스킬 조준 범위와 같은 하늘색 원. 내 위치를 따라가고 수명 동안 흐려짐
+      const me = ME();
+      if (me && !me.dead) {
+        const [x, y] = P2(me), R = px(HIT_R + me.stats.range + (me.wBuff ? SK.w.rangeBonus : 0));
+        ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.fillStyle = 'rgba(120,215,255,.10)';
+        ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill(); ctx.stroke();
+      }
     } else if (f.fx === 'gui') {     // 단두대
       ctx.translate(f.x, f.y); ctx.strokeStyle = '#ff4d5a'; ctx.lineWidth = 4;
       for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 14 - 18, -30 + p * 30 - 20); ctx.lineTo(i * 14 + 18, 30 - 20); ctx.stroke(); }
@@ -786,6 +802,7 @@ function render(now) {
 
   for (const t of w.turrets) drawTurretWarning(t, now);
   drawSkillWorld(me);
+  drawChaseMarker(me);
 
   for (const d of w.dummies) drawBleedOrbs(d, false);
   for (const d of w.dummies) drawDummy(d);
