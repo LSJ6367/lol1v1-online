@@ -14,6 +14,7 @@ const VIEW_H = 576, VIEW_MIN_W = 816;                 // 컨셉 화면 기준 �
 const SPRITE_H = { darius: 56, yi: 58, garen: 60 };   // 스프라이트 높이(px)
 const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39 };   // 발 위치(가로 비율)
 const GAR = Core.SKILLS.garen;                        // 가렌 수치(화면 표시·범위용). 규칙은 Core가 계산
+const spinLocked = me => !!me && me.key === 'garen' && !!me.ge && me.ge.t < GAR.e.cancelLock - 1e-9;   // 심판 시작 뒤 cancelLock초: E 취소 불가(Core castGaren과 같은 판정)
 const fmt = (n, d = 0) => Number(n).toFixed(d);
 const dmgTxt = n => n < 10 ? fmt(n, 1) : fmt(n, 0);
 
@@ -54,7 +55,7 @@ function sendInput() {
   const sig = `${mx.toFixed(3)},${my.toFixed(3)},${atk ? 1 : 0}`;
   if (sig !== lastSent) { lastSent = sig; session.send({ type: 'input', id: session.myId, mx, my, atk }); }
 }
-function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중에는 보내지 않음
+function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence && !(k === 'e' && spinLocked(me))) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중·심판 잠금 중(E)에는 보내지 않음
 function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', id: me.id, skill: k }); }
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
@@ -217,7 +218,7 @@ for (const k of SKILL_KEYS) {
   skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), dots: [], cdT: null, s: {} };
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
-    const me = ME(); if (!me || me.dead || me.silence) return;   // 침묵 중에는 눌러도 아무 일도 없음(잠금 표시)
+    const me = ME(); if (!me || me.dead || me.silence || (k === 'e' && spinLocked(me))) return;   // 침묵 중·심판 잠금 중에는 눌러도 아무 일도 없음(조준 표시도 안 함)
     held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
     b.setPointerCapture(e.pointerId); e.preventDefault();
   });
@@ -302,8 +303,14 @@ function refreshSkills() {
     set('sil', !!me.silence, v => { o.b.classList.toggle('silenced', v); o.b.setAttribute('aria-disabled', String(v)); });   // 침묵: 회색 + 빨간 사선
     set('hold', !!(held[k] && held[k].show), v => o.b.classList.toggle('hold', v));
     if (G) {
-      if (k === 'e') set('spin', spin, v => { o.b.classList.toggle('spin', v); setHidden(o.icon, v); setHidden(o.stop, !v); setHidden(o.ring, !v); o.b.setAttribute('aria-label', v ? o.base + ' · 회전 중, 누르면 취소' : o.base); });
-      if (spin) set('spf', (100 * (1 - Math.min(1, me.ge.t / GAR.e.dur))).toFixed(1), v => o.rf.setAttribute('stroke-dashoffset', v));
+      // 심판 회전 중 E: 시작 뒤 cancelLock초는 잠금(X 흐리게, 고리가 잠금 시간만큼 차오름), 그 뒤엔 일반 취소(고리 = 회전 진행)
+      const lock = spin && spinLocked(me);
+      const eLabel = (sp, lk) => o.base + (sp ? (lk ? ' · 회전 중, 잠시 후 취소 가능' : ' · 회전 중, 누르면 취소') : '');
+      if (k === 'e') {
+        set('spin', spin, v => { o.b.classList.toggle('spin', v); setHidden(o.icon, v); setHidden(o.stop, !v); setHidden(o.ring, !v); o.b.setAttribute('aria-label', eLabel(v, lock)); });
+        set('lock', lock, v => { o.b.classList.toggle('lock', v); o.b.setAttribute('aria-label', eLabel(spin, v)); });
+      }
+      if (spin) { const fill = lock ? me.ge.t / GAR.e.cancelLock : me.ge.t / GAR.e.dur; set('rf', (100 * (1 - Math.min(1, fill))).toFixed(1), v => o.rf.setAttribute('stroke-dashoffset', v)); }
       if (k === 'q') set('emp', emp, v => o.b.classList.toggle('emp', v));
       if (emp) set('empf', Math.max(0, Math.min(1, me.gq.t / GAR.q.empT)).toFixed(3), v => o.b.style.setProperty('--emp', v));
       if (k === 'w' || k === 'r') set('act', act, v => o.b.classList.toggle('on', v));

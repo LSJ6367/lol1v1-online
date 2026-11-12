@@ -107,7 +107,7 @@ const SKILLS = {
     w: { name: '용기', max: 5, dur: 4, dr: [0.25, 0.29, 0.33, 0.37, 0.41], shield: [65, 85, 105, 125, 145], shieldBonusHp: 0.18,
          shieldT: 0.75, ten: 0.6, tenT: 0.75, perKill: 0.2, maxBonus: 30, cd: [22, 19.5, 17, 14.5, 12] },
     e: { name: '심판', max: 5, dur: 3, radius: 325, baseSpins: 7, asPerSpin: 0.25, dmg: [4, 7, 10, 13, 16],
-         ratio: [0.4, 0.43, 0.46, 0.49, 0.52], nearestBonus: 0.25, shredHits: 6, shred: 0.25, shredT: 6, cd: [9, 8.25, 7.5, 6.75, 6] },
+         ratio: [0.4, 0.43, 0.46, 0.49, 0.52], nearestBonus: 0.25, shredHits: 6, shred: 0.25, shredT: 6, cancelLock: 0.5, cd: [9, 8.25, 7.5, 6.75, 6] },
     r: { name: '데마시아의 정의', max: 1, range: 400, cast: 0.435, base: [125, 200, 275], missPct: [0.25, 0.3, 0.35],
          cd: [120, 100, 80] }
   }
@@ -643,8 +643,8 @@ function castGaren(w, c, k, say) {
     addShield(c, G.w.shield[lv - 1] + G.w.shieldBonusHp * bonusHP(c), G.w.shieldT, 'garenW');
     addTenacity(c, G.w.ten, G.w.tenT);
     c.cd.w = skCd(c, 'w');
-  } else if (k === 'e') {                                         // 심판: 다시 누르면 취소
-    if (c.ge) { stopSpin(c); return; }
+  } else if (k === 'e') {                                         // 심판: 다시 누르면 취소. 시작 뒤 cancelLock초 동안은 무시(연타 방지, 비용·글자 없음)
+    if (c.ge) { if (c.ge.t >= G.e.cancelLock - EPS) stopSpin(c); return; }
     startSpin(c, lv);
   } else {                                                        // 데마시아의 정의: 대상이 없으면 아무 비용 없음
     const tgt = garenRTarget(w, c);

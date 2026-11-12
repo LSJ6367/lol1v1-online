@@ -574,6 +574,43 @@ const spinCount = bonusAS => { const w = mk(), c = gar(w); c.bonus.as = bonusAS;
 
 
 // ---------------------------------------------------------------------
+// 5j. 심판 취소 잠금(사용자 수정 2026-11-12 22:06): 시작 뒤 0.5초 동안 E는 무시(취소·쿨타임·글자 없음), 그 뒤엔 취소
+// ---------------------------------------------------------------------
+{ // 0.2초에 다시 누름 → 회전 유지, 쿨타임 0, 그 누름에서 글자 없음(피해 숫자 제외), 회전은 7타 모두 들어가고 끝남
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { e: 1 }); placeEdge(c, d, 60);
+  let hitN = 0; const pump = evs => { for (const x of evs) if (x.type === 'fx' && x.fx === 'gspin') hitN++; };
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  run(w, 0.2); pump(Core.drainEvents(w));
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  const evs = Core.drainEvents(w); pump(evs);
+  ok('5j 시작 0.2초 뒤 E: 취소 안 되고 회전 유지, 쿨타임 0', !!c.ge && c.cd.e === 0, `ge ${!!c.ge} cd ${c.cd.e}`);
+  ok('5j 잠금 중 E: 글자 없음(피해 숫자 제외)', !evs.some(x => x.type === 'text' && !/^[\d.]+$/.test(x.txt)), evs.filter(x => x.type === 'text').map(x => x.txt).join(' '));
+  run(w, 3.5); pump(Core.drainEvents(w));
+  ok('5j 0.2초 E 뒤에도 회전 7타 모두 들어가고 끝남', hitN === 7 && !c.ge, `타격 ${hitN}`); }
+
+{ // 0.45초 → 아직 잠금이라 무시, 0.6초 → 취소되고 쿨타임 9초 시작
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { e: 1 }); placeEdge(c, d, 60);
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  run(w, 0.45);
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  ok('5j 0.45초 E: 아직 잠금이라 회전 유지', !!c.ge && c.cd.e === 0, `ge ${!!c.ge} cd ${c.cd.e}`);
+  run(w, 0.15);
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  ok('5j 0.6초 뒤 E: 회전 취소', !c.ge);
+  ok('5j 0.6초 뒤 E 취소: 쿨타임 9초 시작', near(c.cd.e, 9, 2 * TICK), c.cd.e); }
+
+{ // 연타: 두 번째 누름 다음 틱에 또 누름(연속 두 틱) → 회전 유지, 쿨타임 0, 7타 모두 들어감
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { e: 1 }); placeEdge(c, d, 60);
+  let hitN = 0; const pump = evs => { for (const x of evs) if (x.type === 'fx' && x.fx === 'gspin') hitN++; };
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
+  run(w, 0.1); pump(Core.drainEvents(w));
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]); pump(Core.drainEvents(w));
+  Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]); pump(Core.drainEvents(w));
+  ok('5j 연속 두 틱 연타: 회전 유지, 쿨타임 0', !!c.ge && c.cd.e === 0, `ge ${!!c.ge} cd ${c.cd.e}`);
+  run(w, 3.5); pump(Core.drainEvents(w));
+  ok('5j 연타 뒤에도 회전 7타 모두 들어감', hitN === 7 && !c.ge, `타격 ${hitN}`); }
+
+// ---------------------------------------------------------------------
 // 5x. (사용자 확인 요청) 심판 중 실제 다리우스 E에 끌려가도 / 상대 가렌 결정타로 침묵돼도 회전이 끝까지 7타
 // ---------------------------------------------------------------------
 for (const enemyKey of ['darius', 'garen']) {

@@ -141,6 +141,10 @@ button { font: inherit; color: inherit; }
 .sk .ring .rf { stroke: #ffd23f; stroke-dasharray: 100; stroke-linecap: round; }
 .sk .stop { width: 46%; height: 46%; color: #ffb3b5; stroke-width: 2.6; }
 .sk.spin { border-color: #ffd23f; color: #fff1c2; box-shadow: 0 0 14px rgba(255,210,70,.75); }
+/* 심판 잠금(시작 뒤 0.5초): 노란 빛을 끄고 회색으로 흐리게. X는 회색, 고리는 잠금 시간만큼 회색으로 차오름 */
+.sk.spin.lock { border-color: #5d6a77; color: #8e9aa6; box-shadow: none; }
+.sk.lock .stop { color: #7d8894; }
+.sk.lock .rf { stroke: #b4c2d0; }
 .sk.emp { border-color: #ffe066; box-shadow: 0 0 16px rgba(255,214,80,.9); animation: empPulse .9s ease-in-out infinite; }
 .sk.emp::after { background: conic-gradient(rgba(255,214,80,.34) calc(var(--emp, 0) * 360deg), transparent 0); }
 .sk.on { border-color: #ffd23f; box-shadow: 0 0 12px rgba(255,210,70,.7); }
