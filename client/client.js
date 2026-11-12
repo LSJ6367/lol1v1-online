@@ -170,7 +170,7 @@ function refreshPassive() {
   pBtn.classList.toggle('on', on); mightT.hidden = !on; if (on) mightT.textContent = fmt(me.might, 1) + 's';
   if (pTip.hidden) return;
   tipRows.innerHTML = [
-    ['1중첩당 피해', `${Core.bleedPerStack(me)} + 공격력 × 30%`],
+    ['1중첩당 피해', `${Core.bleedPerStack(me)} + 추가 공격력 × 30%`],
     ['5중첩 총 피해', `${fmt(Core.bleedTotal(me, 5), 0)} (5초)`],
     ['공격력 증가', `+${BLEED.buffBase + BLEED.buffPerLvl * (me.level - 1)} (5초)`],
     ['현재 공격력', fmt(Core.curAD(me), 1)]
@@ -181,7 +181,7 @@ function refreshYiPassive(me) {   // 스택 0~3을 아이콘 위에 표시. 3이
   setTxt(stackN, String(n)); stackN.classList.toggle('full', full); pBtn.classList.toggle('ready', full);
   if (pTip.hidden) return;
   const e = Core.SKILLS.yi.e, rows = [['현재 스택', `${n}/${YI_STACK_MAX}`], ['두 번째 공격 피해', fmt(Core.YI_PASSIVE.ratio * Core.curAD(me), 1)]];
-  if (me.wuju > 0) rows.push(['추가 고정 피해', fmt(e.dmg[Math.max(1, me.sk.e) - 1] + e.ratio * Core.curAD(me), 1)]);
+  if (me.wuju > 0) rows.push(['추가 고정 피해', fmt(e.dmg[Math.max(1, me.sk.e) - 1] + e.ratio * Core.bonusAD(me), 1)]);
   tipRows.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
 function refreshGarenPassive(me) {   // 인내심: 회복까지 남은 시간(고리·숫자). 회복 중에는 초록 빛과 "회복 중"

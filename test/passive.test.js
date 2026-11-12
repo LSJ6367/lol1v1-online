@@ -47,22 +47,25 @@ const ad = c => c.stats.ad;
   ok('A1 시작 레벨 6', c.level === 6 && Core.START_LEVEL === 6, c.level);
   ok('A1 6레벨 중첩당 기본 피해 18 (13+(6-1))', near(Core.bleedPerStack(c), 18), Core.bleedPerStack(c)); }
 
-{ // A2. 중첩당 피해 = 13 + (레벨-1) + 공격력 × 0.3  (레벨 1, 6, 18 모두 확인)
-  // 해석: 공식의 "AD"는 적용 시점의 현재 공격력(버프 포함)으로 본다. 버프 없는 상태에서 검증한다.
+{ // A2. 중첩당 피해 = 13 + (레벨-1) + 추가 공격력 × 0.3  (레벨 1, 6, 18 모두 확인). 2026-11-12 수정: 총 공격력 → 추가 공격력
+  // 해석: "추가 공격력" = c.bonus.ad + 버프(bonusAD). 적용 시점 값으로 계산한다. 기본 공격력(레벨로 얻은 것)은 계수에 안 들어간다.
   for (const L of [1, 6, 18]) {
-    const w = mk(), c = w.champs[0]; setLevel(c, L);
     const expPer = 13 + (L - 1);
-    ok(`A2 L${L} 중첩당 기본 피해 = ${expPer}`, near(Core.bleedPerStack(c), expPer), Core.bleedPerStack(c));
-    ok(`A2 L${L} 1중첩 총량 = ${expPer} + 0.3×AD`, near(Core.bleedTotal(c, 1), expPer + 0.3 * c.stats.ad, 1e-6), Core.bleedTotal(c, 1).toFixed(3));
-  }
-  { const w = mk(), c = w.champs[0]; c.stats.ad = 100; c.level = 6;
-    ok('A2 공식 예시: L6, AD100, 1중첩 = 48', near(Core.bleedTotal(c, 1), 48)); } }
+    { const w = mk(), c = w.champs[0]; setLevel(c, L);
+      ok(`A2 L${L} 중첩당 기본 피해 = ${expPer}`, near(Core.bleedPerStack(c), expPer), Core.bleedPerStack(c));
+      ok(`A2 L${L} 추가 공격력 0 → 1중첩 총량 = ${expPer} 정확히`, near(Core.bleedTotal(c, 1), expPer, 1e-9), Core.bleedTotal(c, 1));
+      c.stats.ad = 500;   // 기본 공격력만 올림
+      ok(`A2 L${L} 기본 공격력 500, 추가 0 → 1중첩 총량 = ${expPer} (기본 공격력 무시)`, near(Core.bleedTotal(c, 1), expPer, 1e-9), Core.bleedTotal(c, 1)); }
+    { const w = mk(), c = w.champs[0]; setLevel(c, L); c.bonus.ad = 40;
+      ok(`A2 L${L} 추가 공격력 40 → 1중첩 총량 = ${expPer} + 0.3×40 = ${expPer + 12}`, near(Core.bleedTotal(c, 1), expPer + 12, 1e-9), Core.bleedTotal(c, 1)); } }
+  { const w = mk(), c = w.champs[0]; c.bonus.ad = 100; c.level = 6;
+    ok('A2 공식 예시: L6, 추가 공격력 100, 1중첩 = 48', near(Core.bleedTotal(c, 1), 48)); } }
 
-{ // A3. 총량 = 중첩 수 × (중첩당 기본 + 0.3×AD)  (n = 1..5)
-  const w = mk(), c = w.champs[0]; c.stats.ad = 100;
+{ // A3. 총량 = 중첩 수 × (중첩당 기본 + 0.3×추가 공격력)  (n = 1..5)
+  const w = mk(), c = w.champs[0]; c.bonus.ad = 100;
   let allOk = true; const got = [];
   for (let n = 1; n <= 5; n++) { const exp = n * (18 + 30); got.push(Core.bleedTotal(c, n)); if (!near(Core.bleedTotal(c, n), exp, 1e-9)) allOk = false; }
-  ok('A3 1~5중첩 총량 = n×(18+30) (AD100, L6)', allOk, got.join(', ')); }
+  ok('A3 1~5중첩 총량 = n×(18+30) (추가 공격력 100, L6)', allOk, got.join(', ')); }
 
 // ---------------------------------------------------------------------
 // B. 적용 · 지속 · 틱 · 갱신 (실제 평타 경로로 중첩 적용)
@@ -70,7 +73,7 @@ const ad = c => c.stats.ad;
 { // B1. 평타 1회 → 1중첩, 5초 동안 총량을 모두 입힘 (방어력 0)
   for (const L of [6, 1, 18]) {
     const w = mk(), c = w.champs[0], d = w.dummies[0]; setLevel(c, L); place(c, d);
-    const expTotal = Core.bleedTotal(c, 1), a = ad(c);   // 버프 없음 → AD = 기본 공격력
+    const expTotal = Core.bleedTotal(c, 1), a = ad(c);   // 버프·추가 공격력 없음 → 출혈 계수 항 0
     const pre = hit(w, c, d);
     ok(`B1 L${L} 평타 1회 → 1중첩`, d.bleed && d.bleed.stacks === 1, d.bleed && d.bleed.stacks);
     ok(`B1 L${L} 출혈 지속 5초로 시작`, d.bleed && d.bleed.t > 4.7 && d.bleed.t <= 5.0, d.bleed && d.bleed.t.toFixed(3));
@@ -194,11 +197,17 @@ function stackFive(w, c, d) { for (let i = 0; i < 5; i++) hit(w, c, d); }
   stackFive(w, c, d);
   ok('C6 다시 5중첩 도달 → 버프 재발동', c.might > 0 && Core.buffAD(c) === 55); }
 
-{ // C7. 버프 중 적용된 출혈의 AD는 버프 포함 현재 공격력 (L6, 기본 AD 89 → 버프 중 144)
-  // 해석: 중첩 피해 공식의 "AD"는 적용 시점의 현재 공격력으로 본다. 5번째 중첩은 버프가 켜진 뒤 계산되므로 버프 값이 포함된다.
+{ // C7. 버프 중 적용된 출혈의 추가 공격력은 버프 포함 (L6, 추가 공격력 0 → 버프 중 55)
+  // 해석: 5번째 중첩은 applyBleed에서 버프를 켠 뒤 총량을 계산하므로 버프 값(55)이 포함된다(기존 순서 유지).
   const w = mk(), c = w.champs[0], d = w.dummies[0]; place(c, d);
   stackFive(w, c, d);
-  ok('C7 5중첩 총량에 버프 포함 공격력 사용 (5×18 + 0.3×144×5 = 306)', d.bleed && near(d.bleed.total, 306, 1e-6), d.bleed && d.bleed.total.toFixed(3)); }
+  ok('C7 5중첩 총량에 버프 포함 추가 공격력 사용 (5×18 + 0.3×55×5 = 172.5)', d.bleed && near(d.bleed.total, 172.5, 1e-6), d.bleed && d.bleed.total.toFixed(3)); }
+{ // C7b. 추가 공격력 40 + 버프 55: 4중첩 총량은 버프 전(40 기준), 5중첩 총량은 버프 후(95 기준)
+  const w = mk(), c = w.champs[0], d = w.dummies[0]; place(c, d); c.bonus.ad = 40;
+  for (let i = 0; i < 4; i++) hit(w, c, d);
+  ok('C7b 4중첩 총량 = 4×18 + 0.3×40×4 = 120 (버프 전)', d.bleed && near(d.bleed.total, 120, 1e-6), d.bleed && d.bleed.total.toFixed(3));
+  hit(w, c, d);
+  ok('C7b 5중첩 총량 = 5×18 + 0.3×(40+55)×5 = 232.5 (버프 포함)', d.bleed && near(d.bleed.total, 232.5, 1e-6), d.bleed && d.bleed.total.toFixed(3)); }
 
 // ---------------------------------------------------------------------
 // D. 어떤 스킬이 중첩을 쌓는가 / 궁극기가 지우는가

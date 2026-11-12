@@ -22,8 +22,8 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   ok('체력 재생 5초에 14.75', near(c.hp - 500, 14.75, 0.05), (c.hp - 500).toFixed(3));
   c.mana = 100; run(w, 5); ok('마나 재생 5초에 8.35', near(c.mana - 100, 8.35, 0.05), (c.mana - 100).toFixed(3)); }
 
-// 3. 과다출혈 계산식 예시 (6레벨, 공격력 100)
-{ const w = mk(), c = w.champs[0]; c.stats.ad = 100;
+// 3. 과다출혈 계산식 예시 (6레벨, 추가 공격력 100 — 2026-11-12 수정: 계수는 추가 공격력 기준)
+{ const w = mk(), c = w.champs[0]; c.bonus.ad = 100;
   ok('4중첩 192', near(Core.bleedTotal(c, 4), 192), Core.bleedTotal(c, 4)); ok('5중첩 240', near(Core.bleedTotal(c, 5), 240)); 
   ok('5중첩 공격력 증가 55', (c.might = 5, Core.buffAD(c) === 55)); }
 
@@ -118,7 +118,7 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   Core.step(w3, [{ type: 'cast', id: 'p1', skill: 'r', ang: 0 }]); ok('사거리 밖 궁극기는 마나·쿨타임 소모 없음', c3.cd.r === 0 && c3.mana === c3.stats.maxMana); }
 
 // 10. 과다출혈 진행: 5초에 나눠 입힘, 재중첩 시 갱신
-{ const w = mk(), c = w.champs[0], d = w.dummies[0]; c.stats.ad = 100; c.level = 6;
+{ const w = mk(), c = w.champs[0], d = w.dummies[0]; c.bonus.ad = 100; c.level = 6;
   Core.step(w, []); 
   // 4중첩 상태를 만든 뒤 총량 확인
   for (let i = 0; i < 4; i++) { c.might = 0; d.bleed && (d.bleed = null); }

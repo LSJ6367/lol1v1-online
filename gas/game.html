@@ -249,7 +249,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>CF125E</b></p>
+    <p class="buildVer">버전 <b>94DA6E</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -420,7 +420,7 @@ const CHAMPS = {
   }
 };
 
-/* 다리우스 패시브: 과다출혈 */
+/* 다리우스 패시브: 과다출혈. ratio = 중첩당 추가 공격력 계수(사용자 수정 2026-11-12: 총 공격력 → 추가 공격력) */
 const BLEED = { dur: 5, max: 5, base: 13, perLvl: 1, ratio: 0.3, buffBase: 30, buffPerLvl: 5 };
 
 /* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 */
@@ -453,7 +453,7 @@ const SKILLS = {
          first: 0.2, gap: 0.22, hits: 4, appear: 0.9, mana: [50, 55, 60, 65, 70], cd: [20, 19.5, 19, 18.5, 18], cdPerHit: 1 },
     w: { name: '명상', max: 5, dur: 4, heal: [30, 50, 70, 90, 100], apRatio: 0.25, manaBase: 40, manaPct: 0.06,
          cd: [10, 10, 10, 10, 10], drFirst: 0.7, drFirstT: 0.5, dr: [0.45, 0.475, 0.5, 0.525, 0.55], postT: 0.5, turretHalf: 0.5 },
-    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },
+    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },   // ratio: 추가 공격력 계수(사용자 수정 2026-11-12)
     r: { name: '최후의 전사', max: 1, dur: 7, ms: 0.4, as: 0.25, mana: [100], cd: [85] }
   },
   /* 가렌 (DESIGN_GAREN.md §2-3~2-6, 원문 docs/spec/garen.md). 마나 소모는 0(skMana가 garen이면 0을 돌려줌) */
@@ -618,7 +618,8 @@ const bonusHP = c => c.bonus.hp;
 const bonusASPct = c => CHAMPS[c.key].b.asg * (c.level - 1) + c.bonus.as;   // 공격속도 추가 비율(0.05 = +5%): 레벨 성장분 + 아이템
 const penPct = c => c.stats.pen + (c.key === 'darius' && c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
 const bleedPerStack = c => BLEED.base + BLEED.perLvl * (c.level - 1);
-const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
+/* n중첩 총량 = n × ((13+(L-1)) + 0.3 × 추가 공격력). 추가 공격력은 적용 시점 값(버프 포함). 기본 공격력은 계수에 안 들어감(사용자 수정 2026-11-12) */
+const bleedTotal = (c, n) => n * bleedPerStack(c) + bonusAD(c) * BLEED.ratio * n;
 const skillsOf = c => SKILLS[c.key];
 const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
 const skMana = (c, k) => {
@@ -1110,7 +1111,7 @@ function yiOnHit(w, c, t, second) {
   else if (c.dstack >= YI_PASSIVE.every - 1) { c.dstack = 0; c.dhit = { t: YI_PASSIVE.extraDelay, targetId: t.id }; }   // 4번째 공격
   else c.dstack++;
   if (c.wuju > 0 && t.hp > 0) {
-    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * curAD(c));
+    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * bonusAD(c));   // 추가 고정 피해 = dmg + 0.35 × 추가 공격력(사용자 수정 2026-11-12)
     text(w, t.x + 12, t.y - px(50), v.toFixed(0), '#fff1a8', true);
   }
   if (c.cd.q > 0) c.cd.q = Math.max(0, c.cd.q - SKILLS.yi.q.cdPerHit);
@@ -1407,7 +1408,7 @@ return {
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 8;   // 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 9;   // 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -2808,7 +2809,7 @@ function refreshPassive() {
   pBtn.classList.toggle('on', on); mightT.hidden = !on; if (on) mightT.textContent = fmt(me.might, 1) + 's';
   if (pTip.hidden) return;
   tipRows.innerHTML = [
-    ['1중첩당 피해', `${Core.bleedPerStack(me)} + 공격력 × 30%`],
+    ['1중첩당 피해', `${Core.bleedPerStack(me)} + 추가 공격력 × 30%`],
     ['5중첩 총 피해', `${fmt(Core.bleedTotal(me, 5), 0)} (5초)`],
     ['공격력 증가', `+${BLEED.buffBase + BLEED.buffPerLvl * (me.level - 1)} (5초)`],
     ['현재 공격력', fmt(Core.curAD(me), 1)]
@@ -2819,7 +2820,7 @@ function refreshYiPassive(me) {   // 스택 0~3을 아이콘 위에 표시. 3이
   setTxt(stackN, String(n)); stackN.classList.toggle('full', full); pBtn.classList.toggle('ready', full);
   if (pTip.hidden) return;
   const e = Core.SKILLS.yi.e, rows = [['현재 스택', `${n}/${YI_STACK_MAX}`], ['두 번째 공격 피해', fmt(Core.YI_PASSIVE.ratio * Core.curAD(me), 1)]];
-  if (me.wuju > 0) rows.push(['추가 고정 피해', fmt(e.dmg[Math.max(1, me.sk.e) - 1] + e.ratio * Core.curAD(me), 1)]);
+  if (me.wuju > 0) rows.push(['추가 고정 피해', fmt(e.dmg[Math.max(1, me.sk.e) - 1] + e.ratio * Core.bonusAD(me), 1)]);
   tipRows.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
 function refreshGarenPassive(me) {   // 인내심: 회복까지 남은 시간(고리·숫자). 회복 중에는 초록 빛과 "회복 중"

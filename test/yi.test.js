@@ -34,7 +34,7 @@ const D = w => w.dummies[0];
 const nearDummy = (c, d) => { c.x = d.x - px(150); c.y = d.y; };   // 평타 사거리 안(히트박스 끝 기준 약 25유닛)
 const AD = 77.5;                              // 6레벨 공격력: 65 + 2.5×5
 const A = AD, H = AD * 0.5;                   // 평타 피해, 2연속 두 번째 타격 피해 (더미 방어력 0)
-const WUJU1 = 20 + 0.35 * AD;                 // 우주류 검술 1레벨 추가 고정 피해 = 47.125
+const WUJU1 = 20;                             // 우주류 검술 1레벨 추가 고정 피해 = 20 + 0.35×추가 공격력 → 추가 공격력 0이면 20 (2026-11-12 수정: 기존 47.125는 총 공격력 기준)
 const ALPHA1 = (35 + 1.225 * AD) * 0.25;      // 일격필살 1레벨 1타 = 32.484
 const lbl = d => near(d, A, 0.05) ? 'A' : near(d, H, 0.05) ? 'H' : '?';
 
@@ -116,7 +116,7 @@ function clearRun(len) {
 { const w = mk(), c = w.champs[0], d = D(w);   // 우주류 검술 중: 두 번째 타격에도 추가 고정 피해
   quiet(c); c.cd.q = 1000; nearDummy(c, d); c.sk.e = 1; c.wuju = 1000;
   const r = holdAttacks(w, c, d, 9);
-  ok('2 우주류 중 두 번째 타격도 추가 고정 피해(47.125)', r.hits.length === 11 && near(r.hits[4].dmg, H + WUJU1, 0.05) && near(r.hits[0].dmg, A + WUJU1, 0.05), r.hits[4] && r.hits[4].dmg.toFixed(3));
+  ok('2 우주류 중 두 번째 타격도 추가 고정 피해(20, 추가 공격력 0)', r.hits.length === 11 && near(r.hits[4].dmg, H + WUJU1, 0.05) && near(r.hits[0].dmg, A + WUJU1, 0.05), r.hits[4] && r.hits[4].dmg.toFixed(3));
 }
 
 // ---------------------------------------------------------------------
@@ -317,8 +317,25 @@ function clearRun(len) {
   Core.step(w, [cmd('cast', c.id, { skill: 'e', ang: 0 })]);
   ok('5 마나 소모 없음, 쿨타임 14초, 지속 5초', c.mana === m0 && near(c.cd.e, 14, TICK + EPS) && near(c.wuju, 5, TICK + EPS), c.cd.e.toFixed(4) + ' / ' + c.wuju.toFixed(4));
   const drop = attackOnce(w, c, d);
-  ok('5 기본 공격 적중마다 고정 피해 20 + 0.35×공격력', near(drop, A + WUJU1, 0.05), drop.toFixed(3));
+  ok('5 기본 공격 적중마다 고정 피해 20 + 0.35×추가 공격력(추가 0 → 20)', near(drop, A + WUJU1, 0.05), drop.toFixed(3));
 }
+{ // 5b. 우주류 추가 고정 피해 = dmg + 0.35×추가 공격력 (2026-11-12 수정). 기본 공격력 77.5는 계수에 안 들어감
+  for (const [bonus, exp] of [[0, 20], [40, 34]]) {
+    const w = mk(), c = w.champs[0], d = D(w); quiet(c); lvl(w, c, { e: 1 }); nearDummy(c, d);
+    c.bonus.ad = bonus;
+    const phys = attackOnce(w, c, d);                            // 우주류 전: 물리 피해만
+    Core.step(w, [cmd('cast', c.id, { skill: 'e', ang: 0 })]);
+    const drop = attackOnce(w, c, d);                            // 우주류 중: 물리 + 추가 고정 피해
+    ok(`5b 추가 공격력 ${bonus}: 우주류 추가 고정 피해 = ${exp}`, near(drop - phys, exp, 0.05), (drop - phys).toFixed(3));
+  }
+}
+{ // 5c. 추가 공격력 40: 2연속 두 번째 타격도 추가 고정 피해 (0.5×(공격력+추가) + 20 + 0.35×40)
+  const w = mk(), c = w.champs[0], d = D(w); quiet(c); c.cd.q = 1000; nearDummy(c, d); c.sk.e = 1; c.wuju = 1000; c.bonus.ad = 40;
+  const r = holdAttacks(w, c, d, 9);
+  const W40 = 20 + 0.35 * 40;
+  ok('5c 추가 공격력 40: 평타 = (77.5+40) + 34, 두 번째 타격 = 0.5×(77.5+40) + 34',
+    r.hits.length === 11 && near(r.hits[0].dmg, (AD + 40) + W40, 0.05) && near(r.hits[4].dmg, 0.5 * (AD + 40) + W40, 0.05),
+    r.hits[0] && r.hits[4] ? r.hits[0].dmg.toFixed(3) + ' / ' + r.hits[4].dmg.toFixed(3) : 'hits ' + r.hits.length); }
 { const w = mk(), c = w.champs[0], d = D(w); quiet(c); lvl(w, c, { e: 1 }); nearDummy(c, d);
   Core.step(w, [cmd('cast', c.id, { skill: 'e', ang: 0 })]);
   run(w, 5.05);

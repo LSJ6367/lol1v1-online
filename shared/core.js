@@ -64,7 +64,7 @@ const CHAMPS = {
   }
 };
 
-/* 다리우스 패시브: 과다출혈 */
+/* 다리우스 패시브: 과다출혈. ratio = 중첩당 추가 공격력 계수(사용자 수정 2026-11-12: 총 공격력 → 추가 공격력) */
 const BLEED = { dur: 5, max: 5, base: 13, perLvl: 1, ratio: 0.3, buffBase: 30, buffPerLvl: 5 };
 
 /* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 */
@@ -97,7 +97,7 @@ const SKILLS = {
          first: 0.2, gap: 0.22, hits: 4, appear: 0.9, mana: [50, 55, 60, 65, 70], cd: [20, 19.5, 19, 18.5, 18], cdPerHit: 1 },
     w: { name: '명상', max: 5, dur: 4, heal: [30, 50, 70, 90, 100], apRatio: 0.25, manaBase: 40, manaPct: 0.06,
          cd: [10, 10, 10, 10, 10], drFirst: 0.7, drFirstT: 0.5, dr: [0.45, 0.475, 0.5, 0.525, 0.55], postT: 0.5, turretHalf: 0.5 },
-    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },
+    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },   // ratio: 추가 공격력 계수(사용자 수정 2026-11-12)
     r: { name: '최후의 전사', max: 1, dur: 7, ms: 0.4, as: 0.25, mana: [100], cd: [85] }
   },
   /* 가렌 (DESIGN_GAREN.md §2-3~2-6, 원문 docs/spec/garen.md). 마나 소모는 0(skMana가 garen이면 0을 돌려줌) */
@@ -262,7 +262,8 @@ const bonusHP = c => c.bonus.hp;
 const bonusASPct = c => CHAMPS[c.key].b.asg * (c.level - 1) + c.bonus.as;   // 공격속도 추가 비율(0.05 = +5%): 레벨 성장분 + 아이템
 const penPct = c => c.stats.pen + (c.key === 'darius' && c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
 const bleedPerStack = c => BLEED.base + BLEED.perLvl * (c.level - 1);
-const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
+/* n중첩 총량 = n × ((13+(L-1)) + 0.3 × 추가 공격력). 추가 공격력은 적용 시점 값(버프 포함). 기본 공격력은 계수에 안 들어감(사용자 수정 2026-11-12) */
+const bleedTotal = (c, n) => n * bleedPerStack(c) + bonusAD(c) * BLEED.ratio * n;
 const skillsOf = c => SKILLS[c.key];
 const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
 const skMana = (c, k) => {
@@ -754,7 +755,7 @@ function yiOnHit(w, c, t, second) {
   else if (c.dstack >= YI_PASSIVE.every - 1) { c.dstack = 0; c.dhit = { t: YI_PASSIVE.extraDelay, targetId: t.id }; }   // 4번째 공격
   else c.dstack++;
   if (c.wuju > 0 && t.hp > 0) {
-    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * curAD(c));
+    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * bonusAD(c));   // 추가 고정 피해 = dmg + 0.35 × 추가 공격력(사용자 수정 2026-11-12)
     text(w, t.x + 12, t.y - px(50), v.toFixed(0), '#fff1a8', true);
   }
   if (c.cd.q > 0) c.cd.q = Math.max(0, c.cd.q - SKILLS.yi.q.cdPerHit);
