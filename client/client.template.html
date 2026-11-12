@@ -76,6 +76,11 @@ button { font: inherit; color: inherit; }
 #passiveBtn { position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px)); width: 52px; height: 52px; padding: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #3a0f16, #14070a); border: 2px solid var(--gold); border-radius: 8px; cursor: pointer; touch-action: none; overflow: hidden; }
 #passiveBtn svg { width: 30px; height: 30px; }
 #passiveBtn.on { border-color: #ff5560; box-shadow: 0 0 14px rgba(255,70,80,.75); }
+#passiveBtn.yi { background: radial-gradient(circle at 50% 40%, #173b52, #061017); }
+#passiveBtn.yi.ready { border-color: #8fe0ff; box-shadow: 0 0 14px rgba(120,215,255,.85); animation: yiReady 1s ease-in-out infinite; }
+@keyframes yiReady { 50% { box-shadow: 0 0 24px rgba(170,240,255,1); } }
+#stackN { position: absolute; right: 2px; bottom: 2px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: rgba(5,8,11,.92); border: 1px solid #8fe0ff; font-family: var(--display); font-size: 11px; line-height: 1; color: #d9f5ff; font-variant-numeric: tabular-nums; pointer-events: none; }
+#stackN.full { background: #8fe0ff; color: #04141c; }
 #mightT { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font-family: var(--display); font-size: 12px; background: rgba(120,10,20,.85); color: #fff; font-variant-numeric: tabular-nums; }
 #passiveTip { z-index: 5; position: absolute; top: 72px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(330px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 32px rgba(0,0,0,.55); pointer-events: none; }
 #passiveTip h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 18px; color: var(--gold-hi); }
@@ -116,7 +121,7 @@ button { font: inherit; color: inherit; }
 .dots { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: #05080b; border: 1px solid #6b5a30; }
 .dots i.on { background: #ffd23f; border-color: #ffe88a; }
-@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready { animation: none; } }
 /* ---------- 로비 · 대기실 · 결과 ---------- */
 .screen { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; overflow: auto; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); background: linear-gradient(180deg, rgba(8,13,19,.80), rgba(8,13,19,.93)); touch-action: pan-y; }
 .screen header { text-align: center; }
@@ -243,13 +248,14 @@ button { font: inherit; color: inherit; }
     <button id="statBtn" type="button" aria-label="내 스탯 보기" aria-expanded="false" aria-controls="statPanel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
     </button>
-    <button id="passiveBtn" type="button" aria-label="패시브 과다출혈. 누르고 있으면 설명이 보입니다" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5C12 2.5 5 10.2 5 15a7 7 0 0 0 14 0c0-4.8-7-12.5-7-12.5z" fill="#d4182f" stroke="#f3c4c8" stroke-width="1.2" stroke-linejoin="round"/><path d="M9 15.5a3 3 0 0 0 2.4 2.9" fill="none" stroke="#ffb3ba" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <button id="passiveBtn" type="button" aria-label="패시브. 누르고 있으면 설명이 보입니다" hidden>
+      <svg id="pIco" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      <span id="stackN" hidden>0</span>
       <span id="mightT" hidden></span>
     </button>
     <aside id="passiveTip" hidden role="tooltip">
-      <h3>패시브 · 과다출혈</h3>
-      <p>다리우스의 기본 공격과 공격 스킬이 상대에게 과다출혈을 일으켜 5초에 걸쳐 물리 피해를 입힙니다. 이 효과는 최대 5번까지 중첩됩니다. 적이 최대로 중첩되거나 녹서스의 단두대로 처치되면, 5초 동안 다리우스의 공격력이 증가하고 모든 기본 공격과 스킬 공격 사용 시 과다출혈 중첩이 5번 적용됩니다.</p>
+      <h3 id="pTipH"></h3>
+      <p id="pTipP"></p>
       <dl class="rows" id="tipRows"></dl>
     </aside>
     <div id="clock" aria-label="게임 시간"><span id="clockT">00:00</span><span id="pingT" hidden>-- ms</span></div>
@@ -283,24 +289,24 @@ button { font: inherit; color: inherit; }
       </span>
     </button>
       <div class="skw" data-k="q" style="--dx:-150;--dy:4">
-        <button class="lvup" type="button" data-k="q" aria-label="스킬 1 · 학살 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="q" data-lv="0" aria-label="스킬 1 · 학살"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 15 9"/><path d="M13 3.5 20.5 11 17 14.5 9.5 7z"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="q" hidden>▲</button>
+        <button class="sk" type="button" data-k="q" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="w" style="--dx:-123;--dy:-86">
-        <button class="lvup" type="button" data-k="w" aria-label="스킬 2 · 무력화 일격 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="w" data-lv="0" aria-label="스킬 2 · 무력화 일격"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 14 10"/><path d="M14 10l5-6 1 1-6 5"/><path d="M18 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="w" hidden>▲</button>
+        <button class="sk" type="button" data-k="w" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="e" style="--dx:-63;--dy:-136">
-        <button class="lvup" type="button" data-k="e" aria-label="스킬 3 · 포획 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="e" data-lv="0" aria-label="스킬 3 · 포획"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M12 11a4 4 0 1 0 4 4"/><path d="M16 15l2-2.5M16 15l-2.5-1"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="e" hidden>▲</button>
+        <button class="sk" type="button" data-k="e" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="r" style="--dx:13;--dy:-149">
-        <button class="lvup" type="button" data-k="r" aria-label="궁극기 · 녹서스의 단두대 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="r" data-lv="0" aria-label="궁극기 · 녹서스의 단두대"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v13"/><path d="M6 11l6 7 6-7"/><path d="M5 21h14"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="r" hidden>▲</button>
+        <button class="sk" type="button" data-k="r" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
     </div>
   </div>

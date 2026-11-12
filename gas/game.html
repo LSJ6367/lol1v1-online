@@ -86,6 +86,11 @@ button { font: inherit; color: inherit; }
 #passiveBtn { position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px)); width: 52px; height: 52px; padding: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #3a0f16, #14070a); border: 2px solid var(--gold); border-radius: 8px; cursor: pointer; touch-action: none; overflow: hidden; }
 #passiveBtn svg { width: 30px; height: 30px; }
 #passiveBtn.on { border-color: #ff5560; box-shadow: 0 0 14px rgba(255,70,80,.75); }
+#passiveBtn.yi { background: radial-gradient(circle at 50% 40%, #173b52, #061017); }
+#passiveBtn.yi.ready { border-color: #8fe0ff; box-shadow: 0 0 14px rgba(120,215,255,.85); animation: yiReady 1s ease-in-out infinite; }
+@keyframes yiReady { 50% { box-shadow: 0 0 24px rgba(170,240,255,1); } }
+#stackN { position: absolute; right: 2px; bottom: 2px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: rgba(5,8,11,.92); border: 1px solid #8fe0ff; font-family: var(--display); font-size: 11px; line-height: 1; color: #d9f5ff; font-variant-numeric: tabular-nums; pointer-events: none; }
+#stackN.full { background: #8fe0ff; color: #04141c; }
 #mightT { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font-family: var(--display); font-size: 12px; background: rgba(120,10,20,.85); color: #fff; font-variant-numeric: tabular-nums; }
 #passiveTip { z-index: 5; position: absolute; top: 72px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(330px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 32px rgba(0,0,0,.55); pointer-events: none; }
 #passiveTip h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 18px; color: var(--gold-hi); }
@@ -126,7 +131,7 @@ button { font: inherit; color: inherit; }
 .dots { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: #05080b; border: 1px solid #6b5a30; }
 .dots i.on { background: #ffd23f; border-color: #ffe88a; }
-@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready { animation: none; } }
 /* ---------- 로비 · 대기실 · 결과 ---------- */
 .screen { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; overflow: auto; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); background: linear-gradient(180deg, rgba(8,13,19,.80), rgba(8,13,19,.93)); touch-action: pan-y; }
 .screen header { text-align: center; }
@@ -218,7 +223,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>0A6790</b></p>
+    <p class="buildVer">버전 <b>32D61E</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -253,13 +258,14 @@ button { font: inherit; color: inherit; }
     <button id="statBtn" type="button" aria-label="내 스탯 보기" aria-expanded="false" aria-controls="statPanel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
     </button>
-    <button id="passiveBtn" type="button" aria-label="패시브 과다출혈. 누르고 있으면 설명이 보입니다" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5C12 2.5 5 10.2 5 15a7 7 0 0 0 14 0c0-4.8-7-12.5-7-12.5z" fill="#d4182f" stroke="#f3c4c8" stroke-width="1.2" stroke-linejoin="round"/><path d="M9 15.5a3 3 0 0 0 2.4 2.9" fill="none" stroke="#ffb3ba" stroke-width="1.4" stroke-linecap="round"/></svg>
+    <button id="passiveBtn" type="button" aria-label="패시브. 누르고 있으면 설명이 보입니다" hidden>
+      <svg id="pIco" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      <span id="stackN" hidden>0</span>
       <span id="mightT" hidden></span>
     </button>
     <aside id="passiveTip" hidden role="tooltip">
-      <h3>패시브 · 과다출혈</h3>
-      <p>다리우스의 기본 공격과 공격 스킬이 상대에게 과다출혈을 일으켜 5초에 걸쳐 물리 피해를 입힙니다. 이 효과는 최대 5번까지 중첩됩니다. 적이 최대로 중첩되거나 녹서스의 단두대로 처치되면, 5초 동안 다리우스의 공격력이 증가하고 모든 기본 공격과 스킬 공격 사용 시 과다출혈 중첩이 5번 적용됩니다.</p>
+      <h3 id="pTipH"></h3>
+      <p id="pTipP"></p>
       <dl class="rows" id="tipRows"></dl>
     </aside>
     <div id="clock" aria-label="게임 시간"><span id="clockT">00:00</span><span id="pingT" hidden>-- ms</span></div>
@@ -293,24 +299,24 @@ button { font: inherit; color: inherit; }
       </span>
     </button>
       <div class="skw" data-k="q" style="--dx:-150;--dy:4">
-        <button class="lvup" type="button" data-k="q" aria-label="스킬 1 · 학살 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="q" data-lv="0" aria-label="스킬 1 · 학살"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 15 9"/><path d="M13 3.5 20.5 11 17 14.5 9.5 7z"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="q" hidden>▲</button>
+        <button class="sk" type="button" data-k="q" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="w" style="--dx:-123;--dy:-86">
-        <button class="lvup" type="button" data-k="w" aria-label="스킬 2 · 무력화 일격 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="w" data-lv="0" aria-label="스킬 2 · 무력화 일격"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 14 10"/><path d="M14 10l5-6 1 1-6 5"/><path d="M18 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="w" hidden>▲</button>
+        <button class="sk" type="button" data-k="w" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="e" style="--dx:-63;--dy:-136">
-        <button class="lvup" type="button" data-k="e" aria-label="스킬 3 · 포획 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="e" data-lv="0" aria-label="스킬 3 · 포획"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M12 11a4 4 0 1 0 4 4"/><path d="M16 15l2-2.5M16 15l-2.5-1"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="e" hidden>▲</button>
+        <button class="sk" type="button" data-k="e" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="r" style="--dx:13;--dy:-149">
-        <button class="lvup" type="button" data-k="r" aria-label="궁극기 · 녹서스의 단두대 레벨업" hidden>▲</button>
-        <button class="sk" type="button" data-k="r" data-lv="0" aria-label="궁극기 · 녹서스의 단두대"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v13"/><path d="M6 11l6 7 6-7"/><path d="M5 21h14"/></svg><span class="cdT"></span></button>
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <button class="lvup" type="button" data-k="r" hidden>▲</button>
+        <button class="sk" type="button" data-k="r" data-lv="0"></button>
+        <div class="dots" aria-hidden="true"></div>
       </div>
     </div>
   </div>
@@ -402,6 +408,21 @@ const SK = {
 };
 const SKILL_KEYS = ['q', 'w', 'e', 'r'];
 
+/* 마스터 이 (DESIGN_YI.md §3~§7, 원문 docs/spec/yi.md). 거리 단위는 유닛 */
+const YI_PASSIVE = { every: 4, ratio: 0.5, extraDelay: 0.12 };
+const SKILLS = {
+  darius: SK,
+  yi: {
+    q: { name: '일격필살', max: 5, range: 600, dmg: [35, 70, 105, 140, 175], ratio: 1.225, share: 0.25,
+         first: 0.2, gap: 0.22, hits: 4, appear: 0.9, mana: [50, 55, 60, 65, 70], cd: [20, 19.5, 19, 18.5, 18], cdPerHit: 1 },
+    w: { name: '명상', max: 5, dur: 4, heal: [30, 50, 70, 90, 100], apRatio: 0.25, manaBase: 40, manaPct: 0.06,
+         cd: [10, 10, 10, 10, 10], drFirst: 0.7, drFirstT: 0.5, dr: [0.45, 0.475, 0.5, 0.525, 0.55], postT: 0.5, turretHalf: 0.5 },
+    e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },
+    r: { name: '최후의 전사', max: 1, dur: 7, ms: 0.4, as: 0.25, mana: [100], cd: [85] }
+  }
+};
+const EPS = 1e-9;
+
 /* ---------------------------------------------------------------------
    기본 계산
    --------------------------------------------------------------------- */
@@ -456,7 +477,8 @@ function makeChamp(id, key, team) {
     might: 0, sk: { q: 0, w: 0, e: 0, r: 0 }, sp: START_LEVEL, cd: { q: 0, w: 0, e: 0, r: 0 },
     wBuff: false, cast: null, qPrep: null,
     air: 0, airMax: 1, slow: null, pull: null, pendSlow: false, bleed: null,
-    dead: false, respawn: 0
+    dead: false, respawn: 0,
+    dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0
   };
 }
 function makeDummy(id, team) {
@@ -486,7 +508,7 @@ const isChampLike = u => u.kind === 'champ' || u.kind === 'dummy';      // 과�
 const alive = u => !u.dead;
 const edgeDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - px(a.r) - px(b.r);   // 히트박스 끝 ~ 히트박스 끝
 function enemiesOf(w, c) {
-  return [].concat(w.champs, w.dummies, w.turrets).filter(u => u.team !== c.team && alive(u));
+  return [].concat(w.champs, w.dummies, w.turrets).filter(u => u.team !== c.team && alive(u) && !u.untarget);
 }
 function targetInRange(w, c) {
   const range = px(c.stats.range + (c.wBuff ? SK.w.rangeBonus : 0));
@@ -499,6 +521,11 @@ function ultTarget(w, c) {
   for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SK.r.range) && d < bd) { best = u; bd = d; } }
   return best;
 }
+function yiQTarget(w, c) {   // 일격필살 자동 대상: 사거리 600 안에서 가장 가까운 대상 지정 가능한 적(없으면 null)
+  let best = null, bd = Infinity;
+  for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SKILLS.yi.q.range) && d < bd) { best = u; bd = d; } }
+  return best;
+}
 function autoAim(w, c, champOnly) {   // 가장 가까운 적 방향, 없으면 바라보는 방향
   let best = null, bd = Infinity;
   for (const u of enemiesOf(w, c)) { if (champOnly && !isChampLike(u)) continue; const d = Math.hypot(u.x - c.x, u.y - c.y); if (d < bd) { bd = d; best = u; } }
@@ -509,12 +536,19 @@ function dummyDps(w, d) { const from = w.time - 5; let s = 0; for (const h of d.
 /* 챔피언 파생 수치 */
 const buffAD = c => c.might > 0 ? BLEED.buffBase + BLEED.buffPerLvl * (c.level - 1) : 0;
 const curAD = c => c.stats.ad + buffAD(c);
-const penPct = c => c.stats.pen + (c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
+const penPct = c => c.stats.pen + (c.key === 'darius' && c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
 const bleedPerStack = c => BLEED.base + BLEED.perLvl * (c.level - 1);
 const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
-const skIdx = (k, lv) => Math.min(Math.max(lv, 1), SK[k].mana.length) - 1;
-const skMana = (c, k) => SK[k].mana[skIdx(k, c.sk[k])];
-const skCd = (c, k) => SK[k].cd[skIdx(k, c.sk[k])];
+const skillsOf = c => SKILLS[c.key];
+const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
+const skMana = (c, k) => {
+  if (c.key === 'yi' && k === 'w') { const w = SKILLS.yi.w; return w.manaBase + w.manaPct * c.stats.maxMana; }   // 명상: 40 + 최대 마나 6%
+  const t = SKILLS[c.key][k]; return t.mana[skIdx(t, c.sk[k])];
+};
+const skCd = (c, k) => { const t = SKILLS[c.key][k]; return t.cd[skIdx(t, c.sk[k])]; };
+/* 최후의 전사: 공격속도 = 기본 공속 × (1 + 성장% + 25%), 이동속도 ×1.4 */
+const curAS = c => { if (!(c.hl > 0)) return c.stats.as; const b = CHAMPS[c.key].b; return b.as * (1 + b.asg * (c.level - 1) + SKILLS.yi.r.as); };
+const curMS = c => c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
 function turretAD(t) {
   const c = TURRET_CFG;
   if (t < c.adStart) return c.ad;
@@ -539,12 +573,22 @@ function physMulFor(w, target, pen) {   // pen: 물리관통력(%)
   if (target.kind === 'turret' && gameTime(w) < TURRET_CFG.reductionUntil) m *= (1 - TURRET_CFG.reduction);
   return m;
 }
-function hurt(w, t, a) {
+function hurt(w, t, a, fromTurret) {
+  a *= dmgTakenMul(t, !!fromTurret);      // 명상 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
   t.hp = Math.max(0, t.hp - a);
   if (t.kind === 'dummy') { t.total += a; t.hits.push({ t: w.time, d: a }); t.idle = 0; t.flash = 0.12; }
   return a;
 }
 const dealPhys = (w, c, t, raw) => hurt(w, t, raw * physMulFor(w, t, penPct(c)));
+/* 명상 피해 감소(마스터 이): 0.5초까지 70%, 그 뒤 명상 중·종료 후 0.5초는 레벨별 45~55%. 포탑 피해는 절반 */
+function dmgTakenMul(c, fromTurret) {
+  if (!c || c.kind !== 'champ' || c.key !== 'yi') return 1;
+  const S = SKILLS.yi.w, lvDr = lv => S.dr[Math.min(Math.max(lv, 1), 5) - 1];
+  let dr = 0;
+  if (c.med) dr = c.med.t < S.drFirstT ? S.drFirst : lvDr(c.med.lv);
+  else if (c.medPost > 0) dr = lvDr(c.medLv);
+  return dr > 0 ? 1 - dr * (fromTurret ? S.turretHalf : 1) : 1;
+}
 const dealTrue = (w, t, raw) => hurt(w, t, raw);     // 고정 피해: 방어력·마법저항력·관통력 모두 무시
 
 function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
@@ -552,11 +596,12 @@ function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
   if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); }
   else if (t.kind === 'champ') {
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
+    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
 }
-function addSlow(u, pct, sec) { const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(sec, c ? c.t : 0) }; }
+function addSlow(u, pct, sec) { if (u.hl > 0) return; /* 최후의 전사 중 둔화 면역 */ const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(sec, c ? c.t : 0) }; }
 
 /* 다리우스 패시브: 과다출혈 */
 function applyBleed(w, c, t) {
@@ -621,7 +666,7 @@ function stepMove(w, c, dx, dy) {
    평타
    --------------------------------------------------------------------- */
 function startAttack(w, c, t) {
-  const cyc = 1 / c.stats.as;
+  const cyc = 1 / curAS(c);
   c.atkCd = cyc;
   c.facing = t.x < c.x ? -1 : 1;
   c.atk = { t: 0, wind: cyc * WINDUP, back: cyc * BACKSWING, targetId: t.id, hit: false };
@@ -635,6 +680,7 @@ function strike(w, c, t) {
   const dmg = dealPhys(w, c, t, ad);
   fx(w, { fx: 'slash', x: ex, y: ey, ang, key: c.key, life: c.key === 'darius' ? 0.28 : 0.2 });
   text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
+  if (c.key === 'yi') yiOnHit(w, c, t, false);   // 마스터 이: 패시브 스택·2연속 예약·우주류 추가 피해·일격필살 쿨 감소
   let wUsed = false;
   if (c.wBuff) {   // 스킬 2: 강화된 기본 공격
     c.wBuff = false; wUsed = true;
@@ -653,19 +699,48 @@ function strike(w, c, t) {
    스킬
    --------------------------------------------------------------------- */
 function levelUp(w, c, k) {
-  if (c.dead || c.key !== 'darius' || !SK[k] || c.sp <= 0 || c.sk[k] >= SK[k].max) return;
+  const def = SKILL_KEYS.includes(k) && skillsOf(c) ? skillsOf(c)[k] : null;
+  if (c.dead || !def || c.sp <= 0 || c.sk[k] >= def.max) return;
   c.sk[k]++; c.sp--;
-  text(w, c.x, c.y - px(80), `${SK[k].name} Lv.${c.sk[k]}`, '#ffd23f');
+  text(w, c.x, c.y - px(80), `${def.name} Lv.${c.sk[k]}`, '#ffd23f');
+}
+
+/* 마스터 이 명상 끊기/시작 (A5: 이동·평타 입력, 공중에 뜸·끌려옴, 일격필살 시전으로 끊김. 피해·E·R은 끊지 않음) */
+function endMed(c) {
+  if (!c.med) return;
+  c.medPost = SKILLS.yi.w.postT; c.medLv = c.med.lv; c.med = null;
+}
+function startMed(c) { c.med = { t: 0, lv: c.sk.w, stackT: 0 }; }
+function startAlpha(w, c, tgt) {   // 일격필살: 즉시 사라짐(대상 지정 불가). 타격·등장은 yiAlphaTick
+  const from = { x: c.x, y: c.y };
+  endMed(c);
+  c.untarget = true;
+  c.yq = { t: 0, targetId: tgt.id, hits: 0, from, lv: c.sk.q };
+  fx(w, { fx: 'blink', x: c.x, y: c.y, out: true });
+}
+function castYi(w, c, k, say) {
+  if (c.yq && (k === 'q' || k === 'w')) return;      // 일격필살 중에는 이동·평타·명상·재시전 불가. 우주류 검술·최후의 전사는 가능
+  if (k === 'w' && c.med) { say('이미 명상 중'); return; }
+  let tgt = null;
+  if (k === 'q') { tgt = yiQTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }   // 대상이 없으면 마나·쿨타임 소모 없음
+  const cost = skMana(c, k);
+  if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
+  c.mana -= cost; c.cd[k] = skCd(c, k); c.atk = null;   // 쿨타임은 시전 즉시 시작. 진행 중이던 평타는 취소
+  if (k === 'q') startAlpha(w, c, tgt);
+  else if (k === 'w') startMed(c);
+  else if (k === 'e') c.wuju = SKILLS.yi.e.dur;
+  else { c.hl = SKILLS.yi.r.dur; c.slow = null; }     // 최후의 전사: 기존 둔화 제거, 지속 중 둔화 면역
 }
 
 function castSkill(w, c, k, ang) {
-  if (c.dead || c.key !== 'darius' || !SK[k]) return;
+  if (c.dead || !skillsOf(c) || !SKILL_KEYS.includes(k)) return;
   const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
   const lv = c.sk[k];
   if (c.air > 0 || c.pull) return;
   if (!lv) { say('스킬 레벨 0 · ▲로 레벨업'); return; }
   if (c.cast) return;
   if (c.cd[k] > 0) { say('재사용 대기 중'); return; }
+  if (c.key === 'yi') { castYi(w, c, k, say); return; }
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
   if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }
@@ -732,7 +807,7 @@ function finishCast(w, c, cast) {
     text(w, c.x, c.y - px(75), hit ? '포획!' : '빗나감', hit ? '#ffb04a' : '#b8c4cf', !!hit);
   } else {                   // 녹서스의 단두대: 반드시 명중, 고정 피해
     const t = unitOf(w, cast.targetId);
-    if (!t || t.dead) return;
+    if (!t || t.dead || t.untarget) return;     // 시전 중 대상이 대상 지정 불가가 되면 빗나감
     const stacks = t.bleed ? t.bleed.stacks : 0;
     const total = (SK.r.base + SK.r.ratio * curAD(c)) * (1 + SK.r.perStack * stacks);
     dealTrue(w, t, total);
@@ -746,6 +821,67 @@ function finishCast(w, c, cast) {
 /* ---------------------------------------------------------------------
    챔피언 한 틱
    --------------------------------------------------------------------- */
+/* 마스터 이: 기본 공격 적중 공통 처리(1차 또는 2연속 두 번째). 스택·예약·우주류 추가 고정 피해·일격필살 쿨 감소 */
+function yiOnHit(w, c, t, second) {
+  if (second) c.dstack = Math.min(3, c.dstack + 1);                        // 두 번째 타격도 기본 공격 → 스택 +1, 예약 없음
+  else if (c.dstack >= YI_PASSIVE.every - 1) { c.dstack = 0; c.dhit = { t: YI_PASSIVE.extraDelay, targetId: t.id }; }   // 4번째 공격
+  else c.dstack++;
+  if (c.wuju > 0 && t.hp > 0) {
+    const e = SKILLS.yi.e, v = dealTrue(w, t, e.dmg[c.sk.e - 1] + e.ratio * curAD(c));
+    text(w, t.x + 12, t.y - px(50), v.toFixed(0), '#fff1a8', true);
+  }
+  if (c.cd.q > 0) c.cd.q = Math.max(0, c.cd.q - SKILLS.yi.q.cdPerHit);
+}
+/* 2연속 공격의 두 번째 타격: 물리 0.5 × 공격력, 기본 공격으로 판정 */
+function yiSecondHit(w, c, t) {
+  const ang = Math.atan2(t.y - c.y, t.x - c.x);
+  const ex = t.x - Math.cos(ang) * px(t.r) * 0.85, ey = t.y - Math.sin(ang) * px(t.r) * 0.85 - 22;
+  const dmg = dealPhys(w, c, t, YI_PASSIVE.ratio * curAD(c));
+  fx(w, { fx: 'slash', x: ex, y: ey, ang, key: 'yi', life: 0.2, extra: true });
+  text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
+  yiOnHit(w, c, t, true);
+  settle(w, t);
+}
+/* 일격필살 진행: 0.2초부터 0.22초 간격으로 4회, 0.9초에 대상 주변에 나타남 */
+function yiAlphaTick(w, c, dt) {
+  const Q = SKILLS.yi.q, y = c.yq;
+  y.t += dt;
+  while (y.hits < Q.hits && y.t >= Q.first + y.hits * Q.gap - EPS) {
+    y.hits++;
+    const t = unitOf(w, y.targetId);
+    if (!t || t.dead) { y.hits = Q.hits; break; }            // 대상이 죽거나 사라지면 남은 타격 취소(등장은 그대로)
+    const ang = Math.atan2(t.y - y.from.y, t.x - y.from.x);
+    const v = dealPhys(w, c, t, (Q.dmg[y.lv - 1] + Q.ratio * curAD(c)) * Q.share);
+    fx(w, { fx: 'yslash', x: t.x, y: t.y - px(20), ang });
+    text(w, t.x - 10, t.y - px(60), v < 10 ? v.toFixed(1) : v.toFixed(0), '#ffe2a8', true);
+    settle(w, t);
+  }
+  if (y.t >= Q.appear - EPS) yiAppear(w, c);
+}
+/* 등장: 시전 위치 반대편 방향으로 대상 히트박스 + 내 히트박스×0.8 + 12 떨어진 곳(걸을 수 있는 곳) */
+function yiAppear(w, c) {
+  const y = c.yq, t = unitOf(w, y.targetId);
+  const tx = t ? t.x : y.from.x, ty = t ? t.y : y.from.y, tr = t ? t.r : 0;
+  let dx = tx - y.from.x, dy = ty - y.from.y, d = Math.hypot(dx, dy);
+  if (d < 1e-6) { dx = c.facing; dy = 0; d = 1; }
+  const stop = px(tr + HIT_R * 0.8 + 12);
+  const p = safePoint({ x: tx, y: ty }, { x: tx + dx / d * stop, y: ty + dy / d * stop }, canStand);
+  c.x = p.x; c.y = p.y;
+  c.untarget = false; c.yq = null;
+  c.facing = tx < c.x ? -1 : 1;
+  fx(w, { fx: 'blink', x: c.x, y: c.y, out: false });
+}
+/* 명상 한 틱: 끊김 판정(A5) → 회복 · 1초마다 스택 · 4초 후 종료 */
+function yiMedTick(w, c, dt) {
+  const S = SKILLS.yi.w, m = c.med;
+  if (c.in.mx || c.in.my || c.in.atk || c.air > 0 || c.pull) { endMed(c); return; }
+  m.t += dt; m.stackT += dt;
+  if (m.stackT >= 1 - EPS) { m.stackT -= 1; c.dstack = Math.min(3, c.dstack + 1); }
+  const heal = (S.heal[m.lv - 1] + S.apRatio * c.stats.ap) * (1 + (c.stats.maxHp - c.hp) / c.stats.maxHp) * dt;
+  c.hp = Math.min(c.stats.maxHp, c.hp + heal);
+  if (m.t >= S.dur - EPS) endMed(c);
+}
+
 function respawn(w, c) {
   const keep = { sk: c.sk, sp: c.sp, in: c.in };
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
@@ -757,12 +893,13 @@ function updateChamp(w, c, dt) {
   c.hp = Math.min(s.maxHp, c.hp + s.regen / 5 * dt);              // 체력 재생: 5초당 수치만큼
   c.mana = Math.min(s.maxMana, c.mana + s.manaRegen / 5 * dt);    // 마나 재생: 5초당 수치만큼
   c.might = Math.max(0, c.might - dt);
+  c.medPost = Math.max(0, c.medPost - dt);
   tickStatus(w, c, dt);
   if (c.dead) return;
 
   // 공중에 뜸 / 끌려오는 중: 하려던 모든 행동이 취소되고 아무 행동도 할 수 없음 (피격은 그대로)
   const locked = c.air > 0 || !!c.pull;
-  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; }
+  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소
   for (const k of SKILL_KEYS) c.cd[k] = Math.max(0, c.cd[k] - dt);
 
   // 학살 준비 → 휘두르기
@@ -770,7 +907,7 @@ function updateChamp(w, c, dt) {
   // 평타 선딜 → 타격 → 후딜
   if (c.atk) {
     const a = c.atk; a.t += dt;
-    if (!a.hit && a.t >= a.wind) { a.hit = true; const t = unitOf(w, a.targetId); if (t && !t.dead) strike(w, c, t); }
+    if (!a.hit && a.t >= a.wind) { a.hit = true; const t = unitOf(w, a.targetId); if (t && !t.dead && !t.untarget) strike(w, c, t); }
     if (a.t >= a.wind + a.back) c.atk = null;
   }
   // 시전 시간(포획, 단두대): 시전 중에는 이동 불가
@@ -781,12 +918,19 @@ function updateChamp(w, c, dt) {
   }
   if (c.dead) return;
 
+  // 마스터 이: 일격필살 진행 · 2연속 두 번째 타격 대기 · 명상 · 우주류/최후의 전사 타이머
+  if (c.yq) yiAlphaTick(w, c, dt);
+  if (c.dhit) { c.dhit.t -= dt; if (c.dhit.t <= EPS) { const h = c.dhit; c.dhit = null; const t = unitOf(w, h.targetId); if (t && !t.dead && !t.untarget) yiSecondHit(w, c, t); } }
+  if (c.med) yiMedTick(w, c, dt);
+  if (c.wuju > 0 && !c.med && !c.yq) c.wuju = Math.max(0, c.wuju - dt);   // 명상·일격필살 중에는 줄지 않음
+  c.hl = Math.max(0, c.hl - dt);
+
   // 이동
   let mx = c.in.mx, my = c.in.my;
-  if (c.atk || c.cast || locked) { mx = 0; my = 0; }              // 평타·시전 중, 공중에 뜬 동안에는 멈춤
+  if (c.atk || c.cast || locked || c.yq || c.med) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상 중, 공중에 뜬 동안에는 멈춤
   c.moving = !!(mx || my);
   if (c.moving) {
-    const sp = px(s.ms) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
+    const sp = px(curMS(c)) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
     stepMove(w, c, mx * sp, my * sp);
     if (Math.abs(mx) > 0.15) c.facing = mx < 0 ? -1 : 1;
   }
@@ -794,7 +938,7 @@ function updateChamp(w, c, dt) {
   // 평타 입력
   c.atkCd = Math.max(0, c.atkCd - dt);
   c.noTgt = Math.max(0, c.noTgt - dt);
-  if (!locked && !c.cast && c.in.atk) {
+  if (!locked && !c.cast && !c.yq && c.in.atk) {
     const t = targetInRange(w, c);
     if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
     else if (c.in.edge && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
@@ -827,14 +971,14 @@ function updateTurret(w, t, dt) {
   if (t.dead) { t.deadT += dt; return; }
   t.cd = Math.max(0, t.cd - dt);
   let tgt = t.targetId ? champOf(w, t.targetId) : null;
-  if (tgt && (tgt.dead || edgeDist(t, tgt) > px(c.range))) {
-    if (t.warn > 0 && !t.locked && !tgt.dead) text(w, tgt.x, tgt.y - px(40), '회피', '#9fd3ff');
+  if (tgt && (tgt.dead || tgt.untarget || edgeDist(t, tgt) > px(c.range))) {   // 대상 지정 불가가 되면 조준 해제(날아가던 투사체도 사라짐)
+    if (t.warn > 0 && !t.locked && !tgt.dead && !tgt.untarget) text(w, tgt.x, tgt.y - px(40), '회피', '#9fd3ff');
     resetTurretLock(t); tgt = null;
   }
   if (!tgt) {   // 사거리 안의 가장 가까운 적 챔피언을 조준
     let bd = Infinity;
     for (const u of w.champs) {
-      if (u.team === t.team || u.dead) continue;
+      if (u.team === t.team || u.dead || u.untarget) continue;
       const d = edgeDist(t, u);
       if (d <= px(c.range) && d < bd) { bd = d; tgt = u; }
     }
@@ -850,8 +994,8 @@ function updateTurret(w, t, dt) {
       t.shot = null;
       const eff = tgt.stats.armor * (1 - c.pen);
       const dmg = turretAD(gameTime(w)) * (1 + c.stackBonus * t.stacks) * dmgMul(eff);
-      hurt(w, tgt, dmg);
-      text(w, tgt.x, tgt.y - px(40), dmg.toFixed(0), '#ff6b6b', true);
+      const got = hurt(w, tgt, dmg, true);     // 포탑 피해: 명상 피해 감소는 절반
+      text(w, tgt.x, tgt.y - px(40), got.toFixed(0), '#ff6b6b', true);
       t.stacks = Math.min(c.stackMax, t.stacks + 1);
       if (settle(w, tgt)) resetTurretLock(t);
     }
@@ -906,7 +1050,9 @@ return {
   setMap, isWalk, canStand, createWorld, step, drainEvents, calcStats,
   // 조회
   px, gameTime, champOf, unitOf, isChampLike, edgeDist, enemiesOf, targetInRange, ultTarget, autoAim, dummyDps,
-  buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD
+  buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD,
+  // 마스터 이 (화면 전용 조회)
+  SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget
 };
 });
 
@@ -935,7 +1081,7 @@ return {
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 2;
+const VERSION = 3;
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -2287,16 +2433,35 @@ function refreshPanel() {
   set('mana', `${fmt(me.mana, 0)} / ${fmt(s.maxMana, 0)}`);
   set('mregen', `${fmt(s.manaRegen, 2)} /5초`);
   set('ad', me.might > 0 ? `${fmt(Core.curAD(me), 1)} (+${Core.buffAD(me)})` : fmt(s.ad, 1)); set('ap', fmt(s.ap, 0));
-  set('as', `${fmt(s.as, 3)} /초`);
+  const cas = Core.curAS(me), cms = Core.curMS(me);   // 최후의 전사 중에는 공격속도·이동속도 버프를 괄호로 표시
+  set('as', Math.abs(cas - s.as) > 1e-9 ? `${fmt(cas, 3)} /초 (+${fmt(cas - s.as, 3)})` : `${fmt(s.as, 3)} /초`);
   set('armor', fmt(s.armor, 1)); set('mr', fmt(s.mr, 1));
-  set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', `${s.range + (me.wBuff ? SK.w.rangeBonus : 0)} 유닛`); set('ms', String(s.ms)); set('sp', String(me.sp));
+  set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', `${s.range + (me.wBuff ? SK.w.rangeBonus : 0)} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
 }
 setInterval(refreshPanel, 120);
 
-/* ---------- 패시브 아이콘 ---------- */
-const pBtn = $('#passiveBtn'), pTip = $('#passiveTip'), mightT = $('#mightT'), tipRows = $('#tipRows');
+/* ---------- 챔피언별 패시브 표시 (아이콘·이름·설명). 여기 없는 챔피언은 패시브 아이콘이 없음 ---------- */
+const PASSIVE_UI = {
+  darius: {
+    label: '패시브 과다출혈. 누르고 있으면 설명이 보입니다',
+    title: '패시브 · 과다출혈',
+    desc: '다리우스의 기본 공격과 공격 스킬이 상대에게 과다출혈을 일으켜 5초에 걸쳐 물리 피해를 입힙니다. 이 효과는 최대 5번까지 중첩됩니다. 적이 최대로 중첩되거나 녹서스의 단두대로 처치되면, 5초 동안 다리우스의 공격력이 증가하고 모든 기본 공격과 스킬 공격 사용 시 과다출혈 중첩이 5번 적용됩니다.',
+    icon: '<path d="M12 2.5C12 2.5 5 10.2 5 15a7 7 0 0 0 14 0c0-4.8-7-12.5-7-12.5z" fill="#d4182f" stroke="#f3c4c8" stroke-width="1.2" stroke-linejoin="round"/><path d="M9 15.5a3 3 0 0 0 2.4 2.9" fill="none" stroke="#ffb3ba" stroke-width="1.4" stroke-linecap="round"/>'
+  },
+  yi: {
+    label: '패시브 2연속 공격. 누르고 있으면 설명이 보입니다',
+    title: '패시브 · 2연속 공격',
+    desc: '매 4번째 기본 공격마다 2번 연속 공격합니다. 두 번째 공격은 공격력의 50% 물리 피해 (기본 공격 판정)',
+    icon: '<path d="M5.5 5C9.5 9.5 12 14.5 18.5 19.5" fill="none" stroke="#eefcff" stroke-width="2.4" stroke-linecap="round"/><path d="M10.5 3.5C13.5 8.5 15.5 13 20.5 16.5" fill="none" stroke="#7fdcff" stroke-width="2" stroke-linecap="round"/>'
+  }
+};
+const pBtn = $('#passiveBtn'), pTip = $('#passiveTip'), pIco = $('#pIco'), pTipH = $('#pTipH'), pTipP = $('#pTipP');
+const mightT = $('#mightT'), stackN = $('#stackN'), tipRows = $('#tipRows');
+const YI_STACK_MAX = Core.YI_PASSIVE.every - 1;   // 패시브 스택 최대(3). 4번째 기본 공격이 2연속 공격
+function setTxt(el, v) { if (el.textContent !== v) el.textContent = v; }
 function refreshPassive() {
-  const me = ME(); if (!me || me.key !== 'darius') return;
+  const me = ME(); if (!me || !PASSIVE_UI[me.key]) return;
+  if (me.key === 'yi') { refreshYiPassive(me); return; }
   const on = me.might > 0;
   pBtn.classList.toggle('on', on); mightT.hidden = !on; if (on) mightT.textContent = fmt(me.might, 1) + 's';
   if (pTip.hidden) return;
@@ -2307,7 +2472,14 @@ function refreshPassive() {
     ['현재 공격력', fmt(Core.curAD(me), 1)]
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
-setInterval(refreshPassive, 100);
+function refreshYiPassive(me) {   // 스택 0~3을 아이콘 위에 표시. 3이면 다음 기본 공격이 2연속 공격이라 강조
+  const n = me.dstack, full = n >= YI_STACK_MAX;
+  setTxt(stackN, String(n)); stackN.classList.toggle('full', full); pBtn.classList.toggle('ready', full);
+  if (pTip.hidden) return;
+  const e = Core.SKILLS.yi.e, rows = [['현재 스택', `${n}/${YI_STACK_MAX}`], ['두 번째 공격 피해', fmt(Core.YI_PASSIVE.ratio * Core.curAD(me), 1)]];
+  if (me.wuju > 0) rows.push(['추가 고정 피해', fmt(e.dmg[Math.max(1, me.sk.e) - 1] + e.ratio * Core.curAD(me), 1)]);
+  tipRows.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
 let tipId = null;
 pBtn.addEventListener('pointerdown', e => { tipId = e.pointerId; pBtn.setPointerCapture(e.pointerId); pTip.hidden = false; refreshPassive(); e.preventDefault(); });
 const tipOff = e => { if (e.pointerId !== tipId) return; tipId = null; pTip.hidden = true; };
@@ -2325,7 +2497,7 @@ const held = {};   // 누르고 있는 스킬 버튼 { id, sx, sy, t, dragged, a
 const skW = {};
 for (const k of SKILL_KEYS) {
   const w = document.querySelector(`.skw[data-k="${k}"]`);
-  skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dots: [...w.querySelectorAll('.dots i')], cdT: w.querySelector('.cdT'), s: {} };
+  skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), dots: [], cdT: null, s: {} };
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
     const me = ME(); if (!me || me.dead) return;
@@ -2347,12 +2519,48 @@ for (const k of SKILL_KEYS) {
   b.addEventListener('contextmenu', e => e.preventDefault());
   skW[k].up.addEventListener('pointerdown', e => { levelUp(k); e.preventDefault(); e.stopPropagation(); });
 }
+/* 챔피언별 스킬 버튼: 아이콘(SVG)과 이름(aria), 레벨 점 개수(SKILLS[key][k].max). 다리우스 아이콘은 예전 그대로 */
+const ICON = {
+  darius: {
+    q: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 15 9"/><path d="M13 3.5 20.5 11 17 14.5 9.5 7z"/></svg>',
+    w: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20 14 10"/><path d="M14 10l5-6 1 1-6 5"/><path d="M18 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/></svg>',
+    e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M12 11a4 4 0 1 0 4 4"/><path d="M16 15l2-2.5M16 15l-2.5-1"/></svg>',
+    r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v13"/><path d="M6 11l6 7 6-7"/><path d="M5 21h14"/></svg>'
+  },
+  yi: {   // 일격필살: 칼 대쉬 · 명상: 연꽃 · 우주류 검술: 빛나는 검 · 최후의 전사: 솟구치는 꺾쇠
+    q: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 10 14"/><path d="M13.5 6.5l4 4"/><path d="M10 14l-2.5 2.5"/><path d="M4 9.5h4M3 13.5h5M5 17.5h3"/></svg>',
+    w: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18c-4.5 0-8-2.4-9-6 3.2.4 5.4 1.4 9 6z"/><path d="M12 18c4.5 0 8-2.4 9-6-3.2.4-5.4 1.4-9 6z"/><path d="M12 18c-2.4-3.2-2.4-8.6 0-13 2.4 4.4 2.4 9.8 0 13z"/><path d="M7 21h10"/></svg>',
+    e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 14.2 13h-4.4z" fill="currentColor" fill-opacity=".25"/><path d="M8 13.5h8"/><path d="M12 13.5V19"/><circle cx="12" cy="20.5" r="1.2"/><path d="M4.5 5.5v3M3 7h3"/><path d="M19.5 9v3M18 10.5h3"/></svg>',
+    r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 13l6-6 6 6"/><path d="M6 19l6-6 6 6"/></svg>'
+  }
+};
+let skinKey = null;   // 지금 버튼에 그려진 챔피언
+function applySkin(key) {
+  const def = Core.SKILLS[key];
+  SKILL_KEYS.forEach((k, i) => {
+    const o = skW[k], label = (k === 'r' ? '궁극기 · ' : `스킬 ${i + 1} · `) + def[k].name;
+    o.b.innerHTML = ICON[key][k] + '<span class="cdT"></span>';
+    o.cdT = o.b.querySelector('.cdT');
+    o.b.setAttribute('aria-label', label); o.up.setAttribute('aria-label', label + ' 레벨업');
+    o.dotBox.innerHTML = ''; o.dots = [];
+    for (let n = 0; n < (k === 'r' ? 3 : def[k].max); n++)   // 궁극기 점은 3개(원래 명세 5/5/5/3), 지금은 1레벨까지만 찍힘
+    { const d = document.createElement('i'); o.dotBox.appendChild(d); o.dots.push(d); }
+    o.s = {};
+  });
+  pIco.innerHTML = PASSIVE_UI[key].icon;
+  pBtn.setAttribute('aria-label', PASSIVE_UI[key].label);
+  pBtn.classList.remove('on', 'ready'); pBtn.classList.toggle('yi', key === 'yi');
+  mightT.hidden = true; stackN.hidden = key !== 'yi';
+  pTipH.textContent = PASSIVE_UI[key].title; pTipP.textContent = PASSIVE_UI[key].desc;
+  skinKey = key;
+}
 function refreshSkills() {
-  const me = ME(), on = !!me && me.key === 'darius';
+  const me = ME(), on = !!me && !!Core.skillsOf(me);
+  if (on && skinKey !== me.key) applySkin(me.key);
   for (const k of SKILL_KEYS) {
     const o = skW[k]; o.w.hidden = !on;
     if (!on) continue;
-    const lv = me.sk[k], max = SK[k].max, set = (name, v, fn) => { if (o.s[name] !== v) { o.s[name] = v; fn(v); } };
+    const lv = me.sk[k], max = Core.SKILLS[me.key][k].max, set = (name, v, fn) => { if (o.s[name] !== v) { o.s[name] = v; fn(v); } };
     set('lv', lv, v => { o.b.dataset.lv = v; o.dots.forEach((d, i) => d.classList.toggle('on', i < v)); });
     set('up', me.sp > 0 && lv < max && !me.dead, v => { o.up.hidden = !v; });
     const cdv = me.cd[k], frac = cdv > 0 ? cdv / Core.skCd(me, k) : 0;
@@ -2412,7 +2620,9 @@ window.Game = {
     panel.hidden = true; statBtn.setAttribute('aria-expanded', 'false');
     phase = 'play'; hud.hidden = false;
     snapCam();
-    const me = ME(); pBtn.hidden = !me || me.key !== 'darius'; pTip.hidden = true;
+    const me = ME(); pBtn.hidden = !me || !PASSIVE_UI[me.key]; pTip.hidden = true;
+    if (me && skinKey !== me.key) applySkin(me.key);
+    prevPos.clear();
     setTestTools(!!sess.test);
     $('#tReselect').textContent = sess.online ? '방 나가기' : '챔피언 다시 선택';
     $('#pingT').hidden = !sess.online;
@@ -2431,11 +2641,12 @@ window.Game = {
 /* =====================================================================
    코어 이벤트 → 화면 효과
    ===================================================================== */
+const FX_LIFE = { blink: 0.36, yslash: 0.18 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
 function handleEvents() {
   const myId = session.myId;
   for (const ev of session.drainEvents()) {
     if (ev.type === 'text') { if (!ev.to || ev.to === myId) texts.push({ x: ev.x, y: ev.y, txt: ev.txt, color: ev.color, big: ev.big, t: 0, life: 0.9, dx: (Math.random() - .5) * 10 }); }
-    else if (ev.type === 'fx') fxList.push(Object.assign({}, ev, { t: 0 }));
+    else if (ev.type === 'fx') fxList.push(Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 }));
     else if (ev.type === 'banner') showBanner(ev.txt, ev.bad, ev.sec);
   }
 }
@@ -2516,15 +2727,84 @@ function liftOf(c) {
   return (c.air > 0 ? Math.sin(Math.PI * Math.min(1, 1 - c.air / c.airMax)) * 20 + 6 : 0) +
          (c.cast && c.cast.type === 'r' ? Math.sin(Math.PI * Math.min(1, c.cast.t / c.cast.dur)) * 30 : 0);
 }
+/* 챔피언 효과: 명상(초록 아우라 · 발밑 링 · 올라가는 입자), 최후의 전사(붉은 아우라 · 뒤쪽 속도선), 우주류 검술(금색 반짝임) */
+const prevPos = new Map();   // 챔피언별 직전 프레임 위치(속도선 방향용)
+function auraGlow(x, cy, R, sx, rgb, a) {   // 세로로 살짝 눌린 원형 빛
+  ctx.save(); ctx.translate(x, cy); ctx.scale(sx, 1);
+  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, R);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.55, `rgba(${rgb},${a * 0.5})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawAuraBack(c, x, y, sw, sh, lift, vx, vy) {   // 몸 뒤에 그림
+  const cy = y - lift - sh * 0.5;
+  if (c.med) {   // 명상: 모든 플레이어에게 보임
+    const pu = 1 + 0.06 * Math.sin(clockT * 4);
+    auraGlow(x, cy, sh * 0.8 * pu, 0.62, '130,255,170', 0.72);
+    ctx.lineWidth = 2; ctx.strokeStyle = `rgba(170,255,190,${0.6 + 0.3 * Math.sin(clockT * 4)})`;
+    ctx.beginPath(); ctx.ellipse(x, y, sw * 0.6 * pu, 7 * pu, 0, 0, 7); ctx.stroke();
+  }
+  if (c.hl > 0) {   // 최후의 전사: 붉은 주황 아우라 + 움직일 때 뒤쪽 속도선
+    const pu = 1 + 0.05 * Math.sin(clockT * 7);
+    auraGlow(x, cy, sh * 0.82 * pu, 0.62, '255,80,30', 0.7);
+    const sp = Math.hypot(vx, vy);
+    if (c.moving && sp > 0.3 && sp < 25) {
+      const dx = -vx / sp, dy = -vy / sp, nx = -dy, ny = dx;   // 뒤쪽 방향과 그 법선
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 5; i++) {
+        const off = (i - 2) * 7, back = 20 + (i % 2) * 5 + 3 * Math.sin(clockT * 16 + i), L = 18 + 8 * Math.sin(clockT * 12 + i * 1.7);
+        const sx = x + nx * off + dx * back, sy = cy + ny * off + dy * back;
+        const mid = i === 2;   // 가운데 줄이 가장 진하고 굵음
+        ctx.strokeStyle = `rgba(255,${150 + i * 12},80,${mid ? 0.9 : 0.75})`; ctx.lineWidth = mid ? 3.2 : 2.7;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dx * L, sy + dy * L); ctx.stroke();
+      }
+    }
+  }
+}
+function drawAuraFront(c, x, y, sw, sh, lift) {   // 몸 앞에 그림
+  if (c.med) {   // 명상: 초록 입자가 위로 올라감
+    for (let i = 0; i < 7; i++) {
+      const ph = (clockT * 0.55 + i / 7) % 1, qx = x + Math.sin(i * 2.7 + clockT * 2) * sw * 0.3, qy = y - lift - ph * sh * 0.95;
+      ctx.fillStyle = `rgba(175,255,195,${Math.sin(ph * Math.PI) * 0.9})`;
+      ctx.beginPath(); ctx.arc(qx, qy, 1.2 + (1 - ph) * 1.2, 0, 7); ctx.fill();
+    }
+  }
+  if (c.wuju > 0) {   // 우주류 검술: 금색 검기 반짝임 (Darius W의 주황 반짝임과 같은 방식)
+    for (let i = 0; i < 6; i++) {
+      const a = clockT * 2.6 + i * 1.047, tw = 0.5 + 0.5 * Math.sin(clockT * 10 + i * 2.3), r = 2.6 + tw * 2.6;
+      const gx = x + Math.cos(a) * sw * 0.45, gy = y - lift - sh * 0.5 + Math.sin(a * 1.4 + i) * sh * 0.42;
+      ctx.fillStyle = `rgba(255,${205 + tw * 40 | 0},${80 + tw * 70 | 0},${0.45 + 0.55 * tw})`;
+      ctx.beginPath(); ctx.moveTo(gx, gy - r); ctx.lineTo(gx + r * 0.55, gy); ctx.lineTo(gx, gy + r); ctx.lineTo(gx - r * 0.55, gy); ctx.closePath(); ctx.fill();
+    }
+  }
+}
+/* 나에게만: 명상 발밑 진행 바(4초, 줄어듦) · 피해 감소 %, 우주류 검술 남은 시간 */
+function drawSelfInfo(me) {
+  const [x, y] = P2(me), red = Math.round((1 - Core.dmgTakenMul(me, false)) * 100), w = 60, h = 5, x0 = x - w / 2, y0 = y + 10;
+  if (me.med) {
+    const S = Core.SKILLS.yi.w, frac = Math.max(0, Math.min(1, (S.dur - me.med.t) / S.dur));
+    ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, y0 - 1.5, w + 3, h + 3, 2); ctx.fill();
+    ctx.fillStyle = '#17361f'; ctx.fillRect(x0, y0, w, h);
+    ctx.fillStyle = '#5ff08c'; ctx.fillRect(x0, y0, w * frac, h);
+    ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.fillRect(x0, y0, w * frac, 1);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)';
+  ctx.font = `700 9.5px ${FONT}`;
+  if (red > 0) { const t = `피해 감소 ${red}%`; ctx.fillStyle = '#b9ffcf'; ctx.strokeText(t, x, y0 + 16); ctx.fillText(t, x, y0 + 16); }
+  if (me.wuju > 0) { const t = `우주류 검술 ${fmt(me.wuju, 1)}초`, ty = red > 0 ? y0 + 27 : y0 + 16; ctx.fillStyle = '#ffe27a'; ctx.strokeText(t, x, ty); ctx.fillText(t, x, ty); }   // 발밑(머리 위는 상대 체력 정보와 겹침)
+}
 function drawChamp(c) {
   const [x, y] = P2(c);
   const img = imgs[c.key], sh = SPRITE_H[c.key], sw = sh * img.width / img.height, ax = SPRITE_AX[c.key];
+  const pp = prevPos.get(c.id), vx = pp ? x - pp.x : 0, vy = pp ? y - pp.y : 0;
+  prevPos.set(c.id, { x, y });
   ctx.fillStyle = 'rgba(0,0,0,.38)'; ctx.beginPath(); ctx.ellipse(x, y, sw * 0.30, 5.5, 0, 0, 7); ctx.fill();
   if (c.might > 0 && !c.dead) {
     ctx.beginPath(); ctx.ellipse(x, y, sw * 0.36, 7.5, 0, 0, 7);
     ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,70,80,${0.55 + 0.3 * Math.sin(clockT * 9)})`; ctx.stroke();
   }
   const lift = liftOf(c);
+  if (!c.dead) drawAuraBack(c, x, y, sw, sh, lift, vx, vy);
   const bob = c.moving && !c.dead ? Math.abs(Math.sin(clockT * 11)) * 1.6 : 0;
   const lg = Math.sin(c.lunge * Math.PI) * 4;
   ctx.save();
@@ -2533,6 +2813,7 @@ function drawChamp(c) {
   if (c.facing < 0) ctx.scale(-1, 1);
   ctx.drawImage(img, -ax * sw, -sh, sw, sh);
   ctx.restore();
+  if (!c.dead) drawAuraFront(c, x, y, sw, sh, lift);
   if (c.wBuff && !c.dead) {   // 스킬 2: 주황색으로 반짝이는 이펙트
     for (let i = 0; i < 6; i++) {
       const a = clockT * 3 + i * 1.05, tw = 0.5 + 0.5 * Math.sin(clockT * 9 + i * 2.1), r = 2.4 + tw * 2.2;
@@ -2613,12 +2894,21 @@ function drawSkillWorld(me) {
   }
   if (me.dead) return;
   const a = aimInfo(me); if (!a) return;
+  if (me.yq && (a.k === 'q' || a.k === 'w')) return;   // 일격필살 중에는 Q·W를 쓸 수 없으므로 조준 표시도 없음
   const [x, y] = P2(me);
   ctx.save();
   ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.lineWidth = 2.2; ctx.fillStyle = 'rgba(120,215,255,.10)';
   if (a.cancel) { ctx.strokeStyle = 'rgba(255,90,100,.9)'; ctx.fillStyle = 'rgba(255,60,70,.10)'; ctx.setLineDash([6, 5]); }   // 취소 위: 빨간 점선
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `600 9px ${FONT}`;
-  if (a.k === 'q') {   // 안쪽 = 도끼 자루, 바깥 띠 = 도끼날
+  if (me.key === 'yi') {   // 마스터 이: Q = 사거리 600 원 + 대상 강조, W/E/R = 자기 자신 주변 작은 원
+    if (a.k === 'q') {
+      ctx.beginPath(); ctx.arc(x, y, px(HIT_R + Core.SKILLS.yi.q.range), 0, 7); ctx.fill(); ctx.stroke();
+      const t = Core.yiQTarget(W(), me);
+      if (t) { const [tx, ty] = P2(t); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(tx, ty, px(t.r) + 5, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = '#ffd23f'; ctx.stroke(); }
+    } else {
+      ctx.beginPath(); ctx.ellipse(x, y, px(HIT_R) + 5, px(HIT_R) * 0.5 + 2.5, 0, 0, 7); ctx.fill(); ctx.stroke();
+    }
+  } else if (a.k === 'q') {   // 안쪽 = 도끼 자루, 바깥 띠 = 도끼날
     ctx.beginPath(); ctx.arc(x, y, Ro, 0, 7); ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(120,215,255,.18)'; ctx.beginPath(); ctx.arc(x, y, Ri, 0, 7); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#d6f3ff'; ctx.fillText('도끼 자루', x, y - Ri + 11); ctx.fillText('도끼날 (과다출혈 · 회복)', x, y - (Ri + Ro) / 2);
@@ -2654,6 +2944,38 @@ function drawFx() {
           ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d + q * q * 6, r, 0, 7); ctx.fill();
         }
       }
+    } else if (f.fx === 'slash' && f.key === 'yi') {   // 마스터 이 평타: 청백색 얇은 이중 호. 2연속 두 번째 타격은 반대 방향 거울상
+      // 호는 공격자 쪽(목표 앞)에 그림. 2연속 두 번째 타격은 공격 방향 축에 대해 거울상(위아래 반대쪽 + 반대 방향으로 그어짐)
+      const dir = f.extra ? -1 : 1, s = Math.min(1, p * 2) * 2.0, c0 = f.ang + Math.PI, a0 = c0 - dir * 1.0;
+      const side = dir * 5;
+      ctx.translate(f.x - Math.sin(f.ang) * side, f.y + Math.cos(f.ang) * side);
+      ctx.beginPath(); ctx.arc(0, 0, 19, a0, a0 + dir * s, dir < 0); ctx.lineWidth = 2.2; ctx.strokeStyle = '#f2fdff'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 24, a0, a0 + dir * s * 0.9, dir < 0); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(120,225,255,.95)'; ctx.stroke();
+    } else if (f.fx === 'yslash') {   // 일격필살 타격: 밝은 노란색 X자 베기(두 줄 + 빛), 0.18초
+      const L = 27 * (0.5 + 0.5 * Math.min(1, p * 4));
+      ctx.translate(f.x, f.y); ctx.globalAlpha = 1 - p * p;
+      for (const da of [Math.PI / 4, -Math.PI / 4]) {
+        const ux = Math.cos(f.ang + da) * L, uy = Math.sin(f.ang + da) * L;
+        ctx.beginPath(); ctx.moveTo(-ux, -uy); ctx.lineTo(ux, uy);
+        ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(255,205,40,.32)'; ctx.stroke();
+        ctx.lineWidth = 3.2; ctx.strokeStyle = '#ffe420'; ctx.stroke();
+        ctx.lineWidth = 1.1; ctx.strokeStyle = '#fffbe2'; ctx.stroke();
+      }
+      ctx.fillStyle = '#fff6a6'; ctx.beginPath(); ctx.arc(0, 0, 1.5 + 3 * (1 - p), 0, 7); ctx.fill();
+    } else if (f.fx === 'blink') {   // 사라짐: 잔상(반투명 본체가 떠오르며 흐려짐) + 빛 퍼프. 나타남: 빛 퍼프만
+      ctx.translate(f.x, f.y);
+      if (f.out && imgs.yi) {   // 블링크는 마스터 이만 씀
+        const sh = SPRITE_H.yi, sw = sh * imgs.yi.width / imgs.yi.height;
+        ctx.globalAlpha = (1 - p) * 0.5; ctx.translate(0, -p * 8);
+        ctx.drawImage(imgs.yi, -SPRITE_AX.yi * sw, -sh, sw, sh);
+        ctx.translate(0, p * 8);
+      }
+      ctx.globalAlpha = 1 - p;
+      const g = ctx.createRadialGradient(0, -22, 1, 0, -22, 8 + 22 * p);
+      g.addColorStop(0, 'rgba(235,252,255,.9)'); g.addColorStop(0.5, 'rgba(120,220,255,.35)'); g.addColorStop(1, 'rgba(120,220,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -22, 8 + 22 * p, 0, 7); ctx.fill();
+      ctx.lineWidth = 1.8; ctx.strokeStyle = 'rgba(170,235,255,.85)';
+      ctx.beginPath(); ctx.ellipse(0, 0, 10 + 16 * p, 4 + 6 * p, 0, 0, 7); ctx.stroke();
     } else if (f.fx === 'slash') {
       ctx.translate(f.x, f.y); ctx.lineWidth = 3.2; ctx.strokeStyle = '#fff2c9';
       ctx.beginPath(); ctx.arc(0, 0, 17, f.ang - 1.0, f.ang - 1.0 + 2.0 * Math.min(1, p * 1.6)); ctx.stroke();
@@ -2759,13 +3081,14 @@ function render(now) {
   for (const d of w.dummies) drawBleedOrbs(d, false);
   for (const d of w.dummies) drawDummy(d);
   for (const d of w.dummies) drawBleedOrbs(d, true);
-  for (const c of w.champs) { drawBleedOrbs(c, false); drawChamp(c); drawBleedOrbs(c, true); }
+  for (const c of w.champs) { if (c.yq) continue; drawBleedOrbs(c, false); drawChamp(c); drawBleedOrbs(c, true); }   // 일격필살 중에는 안 보임(모두에게)
   drawFx();
 
   // 체력바
   for (const t of w.turrets) if (!t.dead && t.team !== me.team) drawTurretBar(t);
   for (const d of w.dummies) drawDummyBar(d);
-  for (const c of w.champs) { const [x, y] = P2(c); drawChampBar(c, x, y - SPRITE_H[c.key] - 7); }
+  for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - SPRITE_H[c.key] - 7); }
+  if (!me.dead && !me.yq) drawSelfInfo(me);   // 나에게만: 명상 바·피해 감소 %, 우주류 검술 남은 시간
 
   // 떠오르는 숫자
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -2791,6 +3114,7 @@ function refreshHud() {
   const ce = $('#clockT'); if (ce.textContent !== ck) ce.textContent = ck;
   if (session.online) { const pg = session.ping, pt = pg == null ? '-- ms' : Math.round(pg) + ' ms', pe = $('#pingT'); if (pe.textContent !== pt) pe.textContent = pt; }
   atk.style.setProperty('--cd', me.dead ? 0 : (me.atkCd > 0 ? me.atkCd * me.stats.as : 0).toFixed(3));
+  refreshPassive();   // 매 프레임: 스택 숫자가 밀리지 않게
   if (me.dead) showBanner(`사망 · ${Math.max(0, Math.ceil(me.respawn))}초 후 부활`, true, 0.3);
   if (wasDead && !me.dead) { snapCam(); banner.hidden = true; }
   wasDead = me.dead;
