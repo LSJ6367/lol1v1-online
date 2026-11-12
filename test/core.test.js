@@ -107,8 +107,8 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   d.bleed = { stacks: 1, t: 5, total: 0, acc: 0, txtT: 0, src: 'p1', pen: 0 };
   const hp0 = d.hp;
   Core.step(w, [{ type: 'cast', id: 'p1', skill: 'r', ang: 0 }]); run(w, 0.5);
-  const expect = (125 + 0.75 * ad) * 1.2;
-  ok('궁극기 고정 피해 (125+0.75×AD)×(1+0.2×중첩)', near(hp0 - d.hp, expect, 0.05), (hp0 - d.hp).toFixed(2) + ' / ' + expect.toFixed(2));
+  const expect = (125 + 0.75 * Core.bonusAD(c)) * 1.2;   // 2026-11 변경: 계수는 총 공격력이 아니라 추가 공격력
+  ok('궁극기 고정 피해 (125+0.75×추가 공격력)×(1+0.2×중첩)', near(hp0 - d.hp, expect, 0.05), (hp0 - d.hp).toFixed(2) + ' / ' + expect.toFixed(2));
   ok('궁극기에 맞은 적은 과다출혈 모두 사라짐', d.bleed === null);
   ok('궁극기 마나 100, 쿨타임 120초', near(c.mana, c.stats.maxMana - 100, 1) && c.cd.r > 119, c.cd.r.toFixed(1));
   const w2 = mk(), c2 = w2.champs[0], d2 = w2.dummies[0]; lvl(w2, c2, { r: 1 }); c2.x = d2.x - Core.px(300); c2.y = d2.y; d2.hp = 50;

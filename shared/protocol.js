@@ -21,7 +21,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 5;   // 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 6;   // 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림

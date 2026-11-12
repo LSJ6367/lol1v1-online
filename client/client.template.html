@@ -116,6 +116,9 @@ button { font: inherit; color: inherit; }
 .sk[data-lv="0"] { filter: grayscale(1); opacity: .5; }
 .sk.nomana { border-color: #3b6fb0; color: #8fb6e8; }
 .sk.hold { transform: scale(1.08); border-color: #8fe0ff; box-shadow: 0 0 14px rgba(120,215,255,.85); }
+.sk.silenced { border-color: #6b5a8a; color: #8c7fa6; background: radial-gradient(circle at 40% 35%, #1d2030, #0a0c13); }
+.sk.silenced svg { opacity: .3; }
+.sk.silenced::before { content: ""; position: absolute; left: 20%; right: 20%; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; background: #d2607f; box-shadow: 0 0 6px rgba(210,96,127,.8); transform: rotate(-45deg); z-index: 2; pointer-events: none; }
 .lvup { position: absolute; left: 50%; bottom: calc(100% + 3px); width: 22px; height: 20px; padding: 0; display: grid; place-items: center; background: var(--gold); color: #1a1408; border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1; touch-action: none; transform: translateX(-50%); animation: lvbob .9s ease-in-out infinite; }
 @keyframes lvbob { 50% { transform: translate(-50%, -3px); } }
 .dots { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }

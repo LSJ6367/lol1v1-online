@@ -242,8 +242,8 @@ function stackFive(w, c, d) { for (let i = 0; i < 5; i++) hit(w, c, d); }
   let rDrop = null, g = 0;
   while (c.cast && g++ < 500) { const h = d.hp, was = !!c.cast; Core.step(w, []); if (was && !c.cast) rDrop = h - d.hp; }
   ok('D6 궁극기 후 중첩 모두 제거', d.bleed === null);
-  // 궁극기 피해: (125 + 0.75×AD) × (1 + 0.2×중첩) — 중첩이 남아 있을 때의 배율 기준
-  const exp = (125 + 0.75 * ad(c)) * (1 + 0.2 * stacks);
+  // 궁극기 피해: (125 + 0.75×추가 공격력) × (1 + 0.2×중첩) — 2026-11 변경: 계수는 추가 공격력 기준(기본 공격력 제외)
+  const exp = (125 + 0.75 * Core.bonusAD(c)) * (1 + 0.2 * stacks);
   ok('D6 궁극기 피해 배율 = 1 + 0.2×중첩(3중첩 → ×1.6)', rDrop !== null && near(rDrop, exp, 0.05), rDrop + ' / ' + exp.toFixed(2)); }
 
 // ---------------------------------------------------------------------

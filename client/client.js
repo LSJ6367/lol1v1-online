@@ -53,7 +53,7 @@ function sendInput() {
   const sig = `${mx.toFixed(3)},${my.toFixed(3)},${atk ? 1 : 0}`;
   if (sig !== lastSent) { lastSent = sig; session.send({ type: 'input', id: session.myId, mx, my, atk }); }
 }
-function castSkill(k, ang) { const me = ME(); if (me && phase === 'play') session.send({ type: 'cast', id: me.id, skill: k, ang }); }
+function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중에는 보내지 않음
 function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', id: me.id, skill: k }); }
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
@@ -108,22 +108,28 @@ statBtn.addEventListener('click', () => {
 const ROWS = [
   ['lv', '레벨'], ['hp', '체력'], ['regen', '체력 재생'], ['mana', '마나'], ['mregen', '마나 재생'],
   ['ad', '공격력'], ['ap', '주문력'], ['as', '공격속도'], ['armor', '방어력'], ['mr', '마법저항력'],
-  ['pen', '물리관통력'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트']
+  ['pen', '물리관통력'], ['ten', '강인함'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트']
 ];
-$('#spRows').innerHTML = ROWS.map(([k, l]) => `<dt>${l}</dt><dd id="sp_${k}">-</dd>`).join('');
+// 강인함은 0보다 클 때만 보임(refreshPanel이 줄 전체를 켜고 끔)
+$('#spRows').innerHTML = ROWS.map(([k, l]) => `<dt${k === 'ten' ? ' hidden' : ''}>${l}</dt><dd id="sp_${k}"${k === 'ten' ? ' hidden' : ''}>-</dd>`).join('');
 function refreshPanel() {
   const me = ME(); if (!me || panel.hidden) return;
   const s = me.stats, set = (k, v) => { const el = $('#sp_' + k); if (el.textContent !== v) el.textContent = v; };
   $('#spName').textContent = CHAMPS[me.key].name + ' 스탯';
   set('lv', String(me.level));
-  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}`);
+  const sh = Core.shieldOf(me);
+  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}${sh > 0 ? ` · 보호막 ${fmt(sh, 0)}` : ''}`);
   set('regen', `${fmt(s.regen, 2)} /5초`);
   set('mana', `${fmt(me.mana, 0)} / ${fmt(s.maxMana, 0)}`);
   set('mregen', `${fmt(s.manaRegen, 2)} /5초`);
-  set('ad', me.might > 0 ? `${fmt(Core.curAD(me), 1)} (+${Core.buffAD(me)})` : fmt(s.ad, 1)); set('ap', fmt(s.ap, 0));
+  const ba = Core.bonusAD(me);   // 추가 공격력(강화 버프 포함) 이 있으면 괄호로 표시
+  set('ad', ba > 0 ? `${fmt(Core.curAD(me), 1)} (+${fmt(ba, 0)})` : fmt(s.ad, 1)); set('ap', fmt(s.ap, 0));
   const cas = Core.curAS(me), cms = Core.curMS(me);   // 최후의 전사 중에는 공격속도·이동속도 버프를 괄호로 표시
   set('as', Math.abs(cas - s.as) > 1e-9 ? `${fmt(cas, 3)} /초 (+${fmt(cas - s.as, 3)})` : `${fmt(s.as, 3)} /초`);
-  set('armor', fmt(s.armor, 1)); set('mr', fmt(s.mr, 1));
+  set('armor', fmt(Core.armorOf(me), 1)); set('mr', fmt(Core.mrOf(me), 1));
+  const ten = Core.tenacityOf(me), tenOn = ten > 0;
+  $('#sp_ten').hidden = !tenOn; $('#sp_ten').previousElementSibling.hidden = !tenOn;
+  if (tenOn) set('ten', `${fmt(ten * 100, 0)}%`);
   set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', `${s.range + (me.wBuff ? SK.w.rangeBonus : 0)} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
 }
 setInterval(refreshPanel, 120);
@@ -188,7 +194,7 @@ for (const k of SKILL_KEYS) {
   skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), dots: [], cdT: null, s: {} };
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
-    const me = ME(); if (!me || me.dead) return;
+    const me = ME(); if (!me || me.dead || me.silence) return;   // 침묵 중에는 눌러도 아무 일도 없음(잠금 표시)
     held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
     b.setPointerCapture(e.pointerId); e.preventDefault();
   });
@@ -255,6 +261,7 @@ function refreshSkills() {
     set('cdf', frac.toFixed(3), v => o.b.style.setProperty('--cd', v));
     set('cdt', cdv > 0 ? (cdv >= 10 ? String(Math.ceil(cdv)) : fmt(cdv, 1)) : '', v => { o.cdT.textContent = v; });
     set('nm', lv > 0 && me.mana < Core.skMana(me, k), v => o.b.classList.toggle('nomana', v));
+    set('sil', !!me.silence, v => { o.b.classList.toggle('silenced', v); o.b.setAttribute('aria-disabled', String(v)); });   // 침묵: 회색 + 빨간 사선
     set('hold', !!(held[k] && held[k].show), v => o.b.classList.toggle('hold', v));
   }
   // 스킬을 누른 채 조준 중일 때만 X(취소) 표시
@@ -385,17 +392,28 @@ function drawLevelBadge(x, y, lvl) {
   ctx.fillStyle = '#fff'; ctx.font = `700 10px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(String(lvl), x, y + 0.5);
 }
-/* 챔피언 체력바: 한 칸 = 체력 100. 아래에 칸 없는 얇은 마나바 */
+const SHIELD_FILL = '#f4f8ff';   // 보호막 칸(흰색)
+/* 챔피언 체력바: 한 칸 = 체력 100. 아래에 칸 없는 얇은 마나바. 보호막은 체력 바로 뒤에 흰색으로 이어 붙임.
+   체력+보호막이 최대 체력을 넘으면 막대 전체 기준을 체력+보호막으로 맞춤(막대 길이는 그대로, 칸이 좁아짐) */
 function drawChampBar(c, cx, bottomY) {
   const SEG = 100, SW = 7, h = 9, MH = 4, maxHp = c.stats.maxHp, n = maxHp / SEG, w = n * SW, x0 = cx - w / 2 + 6, y0 = bottomY - h - MH - 2;
+  const sh = c.dead ? 0 : Core.shieldOf(c), scale = Math.max(maxHp, c.hp + sh), k = w / scale, seg = SEG * k;   // k: 체력 1당 픽셀, seg: 칸 하나 폭
   const fill = c.dead ? '#556' : (c.team === ME().team ? '#3fd07a' : '#e5484d'), back = c.team === ME().team ? '#1f3a2b' : '#3a1618';
+  const hpX = c.hp * k, shX = (c.hp + sh) * k, segs = Math.ceil(scale / SEG);
   ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, y0 - 1.5, w + 3, h + 3, 2); ctx.fill();
-  for (let i = 0; i < Math.ceil(n); i++) {
-    const sw = Math.min(SW, w - i * SW), frac = Math.max(0, Math.min(1, (c.hp - i * SEG) / SEG)), gap = i < Math.ceil(n) - 1 ? 1 : 0;
-    ctx.fillStyle = back; ctx.fillRect(x0 + i * SW, y0, sw - gap, h);
-    if (frac > 0) { ctx.fillStyle = fill; ctx.fillRect(x0 + i * SW, y0, (sw - gap) * frac, h); }
+  for (let i = 0; i < segs; i++) {
+    const a = i * seg, b = Math.min(w, a + seg), e = i < segs - 1 ? b - 1 : b;   // 칸 사이 1px 틈
+    if (e <= a) continue;
+    ctx.fillStyle = back; ctx.fillRect(x0 + a, y0, e - a, h);
+    if (hpX > a) { ctx.fillStyle = fill; ctx.fillRect(x0 + a, y0, Math.min(e, hpX) - a, h); }
+    const s0 = Math.max(a, hpX), s1 = Math.min(e, shX);
+    if (sh > 0 && s1 > s0) { ctx.fillStyle = SHIELD_FILL; ctx.fillRect(x0 + s0, y0, s1 - s0, h); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(x0, y0, w, 2);
+  if (c.silence && !c.dead) {   // 침묵 상태 표시: 머리 위 막대 바로 위(상대에게도 보임)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = `700 9.5px ${FONT}`; ctx.fillStyle = '#9fd8ff';
+    ctx.fillText(`침묵 ${fmt(c.silence.t, 1)}초`, x0 + w / 2, y0 - 6);
+  }
   const my = y0 + h + 2;
   ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, my - 1.5, w + 3, MH + 3, 2); ctx.fill();
   ctx.fillStyle = '#12284a'; ctx.fillRect(x0, my, w, MH);
@@ -554,15 +572,18 @@ function drawBleedOrbs(u, front) {   // 과다출혈 1중첩마다 핏방울 하
 }
 function drawDummyBar(d) {
   const [x, y] = P2(d), w = 84, h = 9, x0 = x - w / 2, y0 = y - 98;
+  const sh = Core.shieldOf(d), scale = Math.max(d.maxHp, d.hp + sh), k = w / scale;   // 체력+보호막이 최대 체력을 넘으면 막대 기준을 그쪽으로
   ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, y0 - 1.5, w + 3, h + 3, 2); ctx.fill();
   ctx.fillStyle = '#3a2c12'; ctx.fillRect(x0, y0, w, h);
-  ctx.fillStyle = '#e0a43a'; ctx.fillRect(x0, y0, w * (d.hp / d.maxHp), h);
+  ctx.fillStyle = '#e0a43a'; ctx.fillRect(x0, y0, d.hp * k, h);
+  if (sh > 0) { ctx.fillStyle = SHIELD_FILL; ctx.fillRect(x0 + d.hp * k, y0, sh * k, h); }
   ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(x0, y0, w, 2);
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   ctx.font = `700 9.5px ${FONT}`; ctx.fillStyle = '#fff';
-  ctx.fillText(`허수아비 ${fmt(d.hp, 0)} / ${d.maxHp}${d.armor ? ' · 방어력 ' + d.armor : ''}`, x, y0 - 16);
+  ctx.fillText(`허수아비 ${fmt(d.hp, 0)} / ${d.maxHp}${d.armor ? ' · 방어력 ' + d.armor : ''}${sh > 0 ? ' · 보호막 ' + fmt(sh, 0) : ''}`, x, y0 - 16);
   if (d.bleed) { ctx.fillStyle = '#ff8a94'; ctx.fillText(`과다출혈 ${d.bleed.stacks}중첩 · ${fmt(d.bleed.t, 1)}초`, x, y0 - 27); ctx.fillStyle = '#fff'; }
   const st = []; if (d.air > 0 || d.pull) st.push('공중에 뜸'); if (d.slow) st.push(`둔화 ${fmt(d.slow.pct * 100, 0)}% ${fmt(d.slow.t, 1)}초`);
+  if (d.silence) st.push(`침묵 ${fmt(d.silence.t, 1)}초`);
   if (st.length) { ctx.fillStyle = '#9fd8ff'; ctx.fillText(st.join(' · '), x, y0 - 38); }
   ctx.font = `500 9px ${FONT}`; ctx.fillStyle = '#ffe2a8';
   ctx.fillText(`총 피해 ${fmt(d.total, 0)} · 최근 5초 DPS ${fmt(Core.dummyDps(W(), d), 1)}`, x, y0 - 5);
@@ -854,7 +875,7 @@ function frame(now) {
   clockT += dt;
   if (phase === 'play' && session) {
     const me = ME();
-    if (me && (me.dead || me.air > 0 || me.pull)) for (const k in held) delete held[k];
+    if (me && (me.dead || me.air > 0 || me.pull || me.silence)) for (const k in held) delete held[k];
     const nowMs = performance.now(); for (const k in held) if (!held[k].show && nowMs - held[k].t > 180) held[k].show = true;
     sendInput();
     session.update(dt);

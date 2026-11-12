@@ -154,12 +154,15 @@ function makeChamp(id, key, team) {
     air: 0, airMax: 1, slow: null, pull: null, pendSlow: false, bleed: null,
     dead: false, respawn: 0,
     dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0,
-    chase: null, chaseHold: false                     // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
+    chase: null, chaseHold: false,                    // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
+    bonus: { ad: 0, hp: 0, as: 0, armor: 0, mr: 0 },  // 추가 스탯(아이템 등, 지금은 0). 부활해도 유지(respawn에서 보존)
+    silence: null, shields: [], tenSrc: [], shred: null   // 침묵 {t} · 보호막 [{amt,t,src}] · 강인함 [{pct,t}] · 방어력 감소 {t,pct}
   };
 }
 function makeDummy(id, team) {
   return { kind: 'dummy', id, team, x: HOME.x, y: HOME.y, r: 70, hp: 5000, maxHp: 5000, armor: 0,
-           total: 0, hits: [], idle: 0, flash: 0, air: 0, airMax: 0.1, slow: null, pull: null, pendSlow: false, homeT: 0, bleed: null };
+           total: 0, hits: [], idle: 0, flash: 0, air: 0, airMax: 0.1, slow: null, pull: null, pendSlow: false, homeT: 0, bleed: null,
+           silence: null, shields: [], tenSrc: [], shred: null };
 }
 function makeTurret(id, team, x, y) {
   return { kind: 'turret', id, team, x, y, r: TURRET_CFG.r, hp: TURRET_CFG.hp, maxHp: TURRET_CFG.hp,
@@ -226,7 +229,12 @@ function dummyDps(w, d) { const from = w.time - 5; let s = 0; for (const h of d.
 
 /* 챔피언 파생 수치 */
 const buffAD = c => c.might > 0 ? BLEED.buffBase + BLEED.buffPerLvl * (c.level - 1) : 0;
-const curAD = c => c.stats.ad + buffAD(c);
+/* 추가 공격력 = 아이템 등(c.bonus.ad) + 다리우스 패시브 공격력 버프 (기본·레벨로 얻는 공격력은 제외. DESIGN_GAREN.md G1) */
+const bonusAD = c => c.bonus.ad + buffAD(c);
+const totalAD = c => c.stats.ad + bonusAD(c);         // 총 공격력 = 기본 + 추가
+const curAD = totalAD;                                // 기존 이름 유지(같은 값)
+const bonusHP = c => c.bonus.hp;
+const bonusASPct = c => CHAMPS[c.key].b.asg * (c.level - 1) + c.bonus.as;   // 공격속도 추가 비율(0.05 = +5%): 레벨 성장분 + 아이템
 const penPct = c => c.stats.pen + (c.key === 'darius' && c.sk.e > 0 ? SK.e.pen[c.sk.e - 1] : 0);   // 물리관통력(%)
 const bleedPerStack = c => BLEED.base + BLEED.perLvl * (c.level - 1);
 const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
@@ -238,7 +246,7 @@ const skMana = (c, k) => {
 };
 const skCd = (c, k) => { const t = SKILLS[c.key][k]; return t.cd[skIdx(t, c.sk[k])]; };
 /* 최후의 전사: 공격속도 = 기본 공속 × (1 + 성장% + 25%), 이동속도 ×1.4 */
-const curAS = c => { if (!(c.hl > 0)) return c.stats.as; const b = CHAMPS[c.key].b; return b.as * (1 + b.asg * (c.level - 1) + SKILLS.yi.r.as); };
+const curAS = c => { const b = CHAMPS[c.key].b; return b.as * (1 + bonusASPct(c) + (c.hl > 0 ? SKILLS.yi.r.as : 0)); };
 const curMS = c => c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
 function turretAD(t) {
   const c = TURRET_CFG;
@@ -258,27 +266,41 @@ function drainEvents(w) { const e = w.events; w.events = []; return e; }
 /* ---------------------------------------------------------------------
    피해 / 처치 / 상태이상
    --------------------------------------------------------------------- */
-const armorOf = u => u.kind === 'champ' ? u.stats.armor : u.kind === 'dummy' ? (u.armor || 0) : TURRET_CFG.armor;
-function physMulFor(w, target, pen) {   // pen: 물리관통력(%)
-  let m = dmgMul(armorOf(target) * (1 - pen / 100));
+const armorOf = u => u.kind === 'champ' ? u.stats.armor + u.bonus.armor : u.kind === 'dummy' ? (u.armor || 0) : TURRET_CFG.armor;   // 챔피언: 기본 + 추가 방어력
+const mrOf = c => c.stats.mr + c.bonus.mr;            // 마법저항력(기본 + 추가). 지금 규칙에는 마법 피해가 없어 표시용
+function physMulFor(w, target, pen) {   // pen: 물리관통력(%). 방어력 감소(target.shred)는 관통 전에 곱한다
+  const shredMul = target.shred ? 1 - target.shred.pct : 1;
+  let m = dmgMul(armorOf(target) * shredMul * (1 - pen / 100));
   if (target.kind === 'turret' && gameTime(w) < TURRET_CFG.reductionUntil) m *= (1 - TURRET_CFG.reduction);
   return m;
 }
+/* 피해 적용: 피해 감소 → 보호막(먼저 깎임, 고정 피해도) → 남은 피해는 체력. 돌려주는 값과 허수아비 기록은 보호막이 막은 것까지 포함 */
 function hurt(w, t, a, fromTurret) {
-  a *= dmgTakenMul(t, !!fromTurret);      // 명상 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
-  t.hp = Math.max(0, t.hp - a);
+  a *= dmgTakenMul(t, !!fromTurret);      // 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
+  const rest = t.shields && t.shields.length ? absorbShield(t, a) : a;
+  t.hp = Math.max(0, t.hp - rest);
   if (t.kind === 'dummy') { t.total += a; t.hits.push({ t: w.time, d: a }); t.idle = 0; t.flash = 0.12; }
   return a;
 }
 const dealPhys = (w, c, t, raw) => hurt(w, t, raw * physMulFor(w, t, penPct(c)));
-/* 명상 피해 감소(마스터 이): 0.5초까지 70%, 그 뒤 명상 중·종료 후 0.5초는 레벨별 45~55%. 포탑 피해는 절반 */
+/* 받는 피해 배율: 출처마다 따로 계산해 곱한다(서로 다른 출처는 곱, 1-1-6). 명상(마스터 이) × 가렌 W 훅 */
 function dmgTakenMul(c, fromTurret) {
-  if (!c || c.kind !== 'champ' || c.key !== 'yi') return 1;
+  if (!c || c.kind !== 'champ') return 1;
+  return medTakenMul(c, !!fromTurret) * gwTakenMul(c);
+}
+/* 명상 피해 감소(마스터 이): 0.5초까지 70%, 그 뒤 명상 중·종료 후 0.5초는 레벨별 45~55%. 포탑 피해는 절반 */
+function medTakenMul(c, fromTurret) {
+  if (c.key !== 'yi') return 1;
   const S = SKILLS.yi.w, lvDr = lv => S.dr[Math.min(Math.max(lv, 1), 5) - 1];
   let dr = 0;
   if (c.med) dr = c.med.t < S.drFirstT ? S.drFirst : lvDr(c.med.lv);
   else if (c.medPost > 0) dr = lvDr(c.medLv);
   return dr > 0 ? 1 - dr * (fromTurret ? S.turretHalf : 1) : 1;
+}
+/* [가렌 W 훅] 용기(가렌 W)의 피해 감소 자리. 가렌을 만들 때 c.gw = {t, lv}가 있으면 1 - 감소율을 돌려주도록 채운다(DESIGN_GAREN.md §2-4). 지금은 항상 1 */
+function gwTakenMul(c) {
+  if (!c.gw) return 1;
+  return 1;   // TODO(가렌): return 1 - SKILLS.garen.w.dr[c.gw.lv - 1];
 }
 const dealTrue = (w, t, raw) => hurt(w, t, raw);     // 고정 피해: 방어력·마법저항력·관통력 모두 무시
 
@@ -289,10 +311,50 @@ function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
     t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.chase = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
+    t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
 }
-function addSlow(u, pct, sec) { if (u.hl > 0) return; /* 최후의 전사 중 둔화 면역 */ const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(sec, c ? c.t : 0) }; }
+/* 둔화: 지속시간 × (1 - 강인함). 최후의 전사 중에는 면역. 공중에 뜸·끌려옴은 이 함수를 쓰지 않음(강인함 적용 제외) */
+function addSlow(u, pct, sec) {
+  if (u.hl > 0) return; /* 최후의 전사 중 둔화 면역 */
+  const d = sec * (1 - tenacityOf(u));
+  if (!(d > 0)) return;
+  const c = u.slow; u.slow = { pct: Math.max(pct, c ? c.pct : 0), t: Math.max(d, c ? c.t : 0) };
+}
+
+/* 보호막 · 강인함 · 침묵 (DESIGN_GAREN.md §1-3~1-5, 원문 docs/spec/garen.md). 모두 시간으로 줄어들고, 죽으면 사라짐 */
+function addShield(c, amt, sec, src) {      // 보호막 추가(아이템·스킬 효과). 죽은 챔피언에게는 붙지 않음
+  if (!c || c.dead || !c.shields || !(amt > 0) || !(sec > 0)) return;
+  c.shields.push({ amt, t: sec, src: src || '' });
+}
+const shieldOf = c => c.shields ? c.shields.reduce((s, x) => s + x.amt, 0) : 0;   // 남은 보호막 합
+/* 보호막이 피해를 먼저 흡수: 남은 시간이 짧은 것부터 깎는다(같으면 먼저 넣은 것). 깎고 남은 피해를 돌려준다 */
+function absorbShield(t, a) {
+  let rest = a;
+  for (const s of t.shields.slice().sort((p, q) => p.t - q.t)) {
+    if (rest <= 0) break;
+    const use = Math.min(s.amt, rest);
+    s.amt -= use; rest -= use;
+  }
+  t.shields = t.shields.filter(s => s.amt > 0);
+  return rest;
+}
+function addTenacity(c, pct, sec) {         // 강인함 출처 추가(예: 가렌 W 60%, 0.75초). 여러 출처는 곱연산으로 합침
+  if (!c || c.dead || !c.tenSrc || !(pct > 0) || !(sec > 0)) return;
+  c.tenSrc.push({ pct, t: sec });
+}
+const tenacityOf = c => { let m = 1; for (const s of (c.tenSrc || [])) m *= 1 - s.pct; return 1 - m; };   // 1 - Π(1 - 출처값)
+/* 침묵: 지속시간 × (1 - 강인함), 더 긴 쪽 유지. 정신 집중(명상)만 끊음(G2). 시전 중인 스킬·다리우스 Q 준비는 그대로 */
+function addSilence(w, u, sec) {
+  if (!u || u.dead) return false;
+  const d = sec * (1 - tenacityOf(u));
+  if (!(d > 0)) return false;
+  u.silence = { t: Math.max(d, u.silence ? u.silence.t : 0) };
+  if (u.kind === 'champ') endMed(u);       // 명상 끊김: endMed 경로라 끊긴 뒤 0.5초 피해 감소가 유지됨
+  text(w, u.x, u.y - px(62), '침묵', '#c9a2ff', true);
+  return true;
+}
 
 /* 다리우스 패시브: 과다출혈 */
 function applyBleed(w, c, t) {
@@ -317,9 +379,13 @@ function tickStatus(w, u, dt) {
   }
   if (u.air > 0) { u.air = Math.max(0, u.air - dt); if (u.air <= 0 && u.pendSlow) { u.pendSlow = false; addSlow(u, SK.e.slow, SK.e.slowT); } }
   if (u.slow) { u.slow.t -= dt; if (u.slow.t <= 0) u.slow = null; }
+  if (u.silence) { u.silence.t -= dt; if (u.silence.t <= 0) u.silence = null; }
+  if (u.shred) { u.shred.t -= dt; if (u.shred.t <= 0) u.shred = null; }
+  if (u.tenSrc && u.tenSrc.length) { for (const s of u.tenSrc) s.t -= dt; u.tenSrc = u.tenSrc.filter(s => s.t > 0); }
+  if (u.shields && u.shields.length) { for (const s of u.shields) s.t -= dt; u.shields = u.shields.filter(s => s.t > 0); }
   const b = u.bleed;
   if (b && !u.dead) {
-    const use = Math.min(dt, b.t), d = b.total / BLEED.dur * use * dmgMul(armorOf(u) * (1 - b.pen / 100));
+    const use = Math.min(dt, b.t), d = b.total / BLEED.dur * use * physMulFor(w, u, b.pen);
     hurt(w, u, d);
     b.acc += d; b.txtT += use; b.t -= dt;
     if (b.txtT >= 1 || b.t <= 0) { if (b.acc >= 1) text(w, u.x + 14, u.y - 62, Math.round(b.acc) + '', '#ff5a6a'); b.acc = 0; b.txtT = 0; }
@@ -431,11 +497,12 @@ function castSkill(w, c, k, ang) {
   if (c.air > 0 || c.pull) return;
   if (!lv) { say('스킬 레벨 0 · ▲로 레벨업'); return; }
   if (c.cast) return;
+  if (c.silence) { say('침묵', '#c9a2ff'); return; }   // 침묵: 시전 불가(마나·쿨타임 소모 없음). 레벨업은 위에서처럼 가능
+  if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }   // 강화 중에는 W 쿨타임이 멈춰 있으므로 쿨타임 검사보다 먼저 봄
   if (c.cd[k] > 0) { say('재사용 대기 중'); return; }
   if (c.key === 'yi') { castYi(w, c, k, say); return; }
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
-  if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }
   if (!Number.isFinite(ang)) ang = c.facing < 0 ? Math.PI : 0;
   let tgt = null;
   if (k === 'r') { tgt = ultTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }
@@ -501,7 +568,7 @@ function finishCast(w, c, cast) {
     const t = unitOf(w, cast.targetId);
     if (!t || t.dead || t.untarget) return;     // 시전 중 대상이 대상 지정 불가가 되면 빗나감
     const stacks = t.bleed ? t.bleed.stacks : 0;
-    const total = (SK.r.base + SK.r.ratio * curAD(c)) * (1 + SK.r.perStack * stacks);
+    const total = (SK.r.base + SK.r.ratio * bonusAD(c)) * (1 + SK.r.perStack * stacks);   // 추가 공격력 기준(0.75×추가 공격력)
     dealTrue(w, t, total);
     t.bleed = null;                                // 단두대에 맞은 적은 과다출혈 중첩이 모두 사라짐
     fx(w, { fx: 'gui', x: t.x, y: t.y - 30, life: 0.45 });
@@ -578,7 +645,7 @@ function yiMedTick(w, c, dt) {
 }
 
 function respawn(w, c) {
-  const keep = { sk: c.sk, sp: c.sp, in: c.in };
+  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus };   // 추가 스탯(아이템)은 부활해도 유지
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
 }
 
@@ -609,7 +676,8 @@ function updateChamp(w, c, dt) {
   // 공중에 뜸 / 끌려오는 중: 하려던 모든 행동이 취소되고 아무 행동도 할 수 없음 (피격은 그대로)
   const locked = c.air > 0 || !!c.pull;
   if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소
-  for (const k of SKILL_KEYS) c.cd[k] = Math.max(0, c.cd[k] - dt);
+  // 쿨타임. 다리우스 W는 강화(wBuff)가 켜져 있는 동안 멈춰 있다가 강화 평타가 나간 뒤부터 흐름
+  for (const k of SKILL_KEYS) if (!(k === 'w' && c.wBuff)) c.cd[k] = Math.max(0, c.cd[k] - dt);
 
   // 학살 준비 → 휘두르기
   if (c.qPrep) { c.qPrep.t += dt; if (c.qPrep.t >= c.qPrep.dur) { const lv = c.qPrep.lv; c.qPrep = null; doDecimate(w, c, lv); } }
@@ -731,7 +799,7 @@ function devOp(w, c, cmd) {
     case 'time': w.devT += cmd.sec || 0; break;
     case 'spawn': { const sp = SPAWNS[c.team] || SPAWNS[0]; c.x = sp.x; c.y = sp.y; break; }
     case 'turretReset': for (const t of w.turrets) if (t.team !== c.team) { t.hp = t.maxHp; t.dead = false; resetTurretLock(t); t.cd = 0; } break;
-    case 'dummyReset': for (const d of w.dummies) { d.x = HOME.x; d.y = HOME.y; d.pull = null; d.air = 0; d.slow = null; d.pendSlow = false; d.bleed = null; d.hp = d.maxHp; d.total = 0; d.hits = []; d.idle = 0; d.flash = 0; } break;
+    case 'dummyReset': for (const d of w.dummies) { d.x = HOME.x; d.y = HOME.y; d.pull = null; d.air = 0; d.slow = null; d.pendSlow = false; d.bleed = null; d.hp = d.maxHp; d.total = 0; d.hits = []; d.idle = 0; d.flash = 0; d.silence = null; d.shields = []; d.tenSrc = []; d.shred = null; } break;
     case 'dummyArmor': for (const d of w.dummies) d.armor = d.armor >= 60 ? 0 : d.armor + 30; break;
   }
 }
@@ -770,6 +838,9 @@ return {
   // 조회
   px, gameTime, champOf, unitOf, isChampLike, edgeDist, enemiesOf, targetInRange, chaseTarget, ultTarget, autoAim, dummyDps,
   buffAD, curAD, penPct, bleedPerStack, bleedTotal, skMana, skCd, turretAD,
+  // 추가 스탯 · 방어력 · 보호막 · 강인함 · 침묵 (DESIGN_GAREN.md §1)
+  bonusAD, totalAD, bonusHP, bonusASPct, armorOf, mrOf,
+  addShield, shieldOf, addTenacity, tenacityOf, addSilence,
   // 마스터 이 (화면 전용 조회)
   SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget
 };
