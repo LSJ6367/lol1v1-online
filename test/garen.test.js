@@ -458,24 +458,58 @@ const spinCount = bonusAS => { const w = mk(), c = gar(w); c.bonus.as = bonusAS;
   ok('6 마스터 이 일격필살로 대상 지정 불가가 되면 궁극기 즉시 취소', e.untarget === true && g.gr === null && hasText(evs, '취소됨'));
   ok('6 취소되면 궁극기 쿨타임 반환(0)', g.cd.r === 0, g.cd.r); }
 
-{ // 6e. 시전 중 거리 > 1000 → 취소 + 쿨타임 반환
-  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 100);
+{ // 6e. 시전 중 대상이 400 밖으로 나감 → 그 틱에 헛방: 시전 종료, 피해 없음, 쿨타임 소모, Garen은 바로 이동 가능
+  const spot = openSpot(); const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 });
+  c.x = spot.x; c.y = spot.y; placeEdge(d, c, 100, Math.PI);
   Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]);
-  run(w, 0.1);
-  placeEdge(d, c, 1100, 0);
-  Core.step(w, []);
-  ok('6 시전 중 거리 1000 초과 → 취소 + 쿨타임 0 반환', c.gr === null && c.cd.r === 0, `${c.gr} ${c.cd.r}`); }
+  run(w, 0.2);
+  Core.drainEvents(w);
+  placeEdge(d, c, 450, Math.PI);                                  // 0.2초 시점에 사거리 400 밖(450)으로 이동
+  const n = until(w, () => !c.gr, 1);
+  const evs = Core.drainEvents(w);
+  ok('6 시전 중 400 밖으로 나감 → 그 틱에 헛방(시전 종료, 피해 없음)', n === 1 && !c.gr && d.hp === d.maxHp && hasText(evs, '빗나감'), `n ${n} hp ${d.hp}`);
+  ok('6 헛방 쿨타임은 소모된 채(약 120)', c.cd.r > 119 && c.cd.r < 120, c.cd.r.toFixed(3));
+  const x0 = c.x; run(w, 0.3, [inp('p1', 1, 0, false)]);
+  ok('6 헛방 뒤 Garen 바로 이동 가능', c.x > x0, (c.x - x0).toFixed(3)); }
 
-{ // 6f. 완료 시점 거리 400 초과(1000 이하) → 헛방: 피해 없음, 쿨타임 그대로 소모
-  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 100);
+{ // 6f. 시전 내내 400 안(가장자리 399) → 적중: 고정 피해 125 + 25% × 잃은 체력, 칼 이펙트, 헛방 없음
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 399); d.hp = 3000;
   Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]);
-  run(w, 0.1);
-  placeEdge(d, c, 600, 0);
   const evs = [];
-  run(w, 0.4); evs.push(...Core.drainEvents(w));
-  ok('6 시전 완료 때 거리 600 → 헛방: 피해 없음, 쿨타임 소모(약 120)', d.hp === d.maxHp && c.cd.r > 119 && c.cd.r < 120 && hasText(evs, '빗나감'), `${c.cd.r.toFixed(3)} ${d.hp}`); }
+  run(w, 0.6); evs.push(...Core.drainEvents(w));
+  ok('6 시전 내내 400 안(399) → 적중: 고정 피해 625, 빗나감 없음', near(3000 - d.hp, 625, 0.01) && !hasText(evs, '빗나감'), (3000 - d.hp).toFixed(3));
+  ok('6 적중: 칼 이펙트(gsword), 쿨타임 소모, 시전 끝', evs.some(x => x.type === 'fx' && x.fx === 'gsword') && c.cd.r > 119 && c.cd.r < 120 && !c.gr, c.cd.r.toFixed(3)); }
 
-{ // 6g. 궁극기 시전 중 Garen은 이동·평타 불가
+{ // 6g. 시전이 끝나는 틱에는 거리 검사 없음: 완료 직전까지 400 안이던 대상이 완료 틱에 400 밖(500)이어도 적중
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 100); d.hp = 3000;
+  Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]);
+  while (c.gr && c.gr.t + TICK < Core.SKILLS.garen.r.cast - EPS) Core.step(w, []);   // 완료 직전 틱까지 대상은 400 안
+  const pre = Core.drainEvents(w), casting = !!c.gr;
+  placeEdge(d, c, 500, 0);                                        // 다음 틱이 완료 틱
+  Core.step(w, []);
+  const evs = Core.drainEvents(w);
+  ok('6 완료 직전까지 400 안이면 빗나감 없이 시전 중', casting && !hasText(pre, '빗나감'));
+  ok('6 완료 틱에 대상이 400 밖(500)이어도 적중: 고정 피해 625', !c.gr && near(3000 - d.hp, 625, 0.01) && !hasText(evs, '빗나감'), (3000 - d.hp).toFixed(3)); }
+
+{ // 6h. 시전 중 대상 지정 불가(직접 설정) → 즉시 취소, 쿨타임 반환, '취소됨', 피해 없음
+  const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 100);
+  Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]); run(w, 0.2);
+  Core.drainEvents(w);
+  d.untarget = true;
+  Core.step(w, []);
+  const evs = Core.drainEvents(w);
+  ok('6 시전 중 대상 지정 불가 → 즉시 취소, 쿨타임 반환(0), 피해 없음', !c.gr && c.cd.r === 0 && hasText(evs, '취소됨') && d.hp === d.maxHp, `${c.gr} ${c.cd.r} ${d.hp}`); }
+
+{ // 6i. 시전 중 대상 사망 → 즉시 취소, 쿨타임 반환. 사망 상태는 settle이 남기는 것과 같게 직접 설정
+  const { w, g, e } = duel('darius'); placeEdge(e, g, 100, 0); lvl(w, g, { r: 1 });
+  Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]); run(w, 0.2);
+  Core.drainEvents(w);
+  e.hp = 0; e.dead = true; e.respawn = Core.RESPAWN_SEC;
+  Core.step(w, []);
+  const evs = Core.drainEvents(w);
+  ok('6 시전 중 대상 사망 → 즉시 취소, 쿨타임 반환(0)', !g.gr && g.cd.r === 0 && hasText(evs, '취소됨'), `${g.gr} ${g.cd.r}`); }
+
+{ // 6j. 궁극기 시전 중 Garen은 이동·평타 불가
   const w = mk(), c = gar(w), d = dum(w); lvl(w, c, { r: 1 }); placeEdge(c, d, 100);
   Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]);
   const x0 = c.x, y0 = c.y;

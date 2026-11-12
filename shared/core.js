@@ -109,7 +109,7 @@ const SKILLS = {
     e: { name: '심판', max: 5, dur: 3, radius: 325, baseSpins: 7, asPerSpin: 0.25, dmg: [4, 7, 10, 13, 16],
          ratio: [0.4, 0.43, 0.46, 0.49, 0.52], nearestBonus: 0.25, shredHits: 6, shred: 0.25, shredT: 6, cd: [9, 8.25, 7.5, 6.75, 6] },
     r: { name: '데마시아의 정의', max: 1, range: 400, cast: 0.435, base: [125, 200, 275], missPct: [0.25, 0.3, 0.35],
-         farCancel: 1000, cd: [120, 100, 80] }
+         cd: [120, 100, 80] }
   }
 };
 /* 가렌 인내심(패시브, DESIGN_GAREN.md G5): 마지막 피해 후 8초가 지나면 초당 최대 체력의 0.5% 연속 회복 */
@@ -602,20 +602,24 @@ function garenSpinTick(w, c, dt) {
   if (c.ge && S.t >= E.dur - EPS) stopSpin(c);
 }
 
-/* 데마시아의 정의 한 틱: 시전 중 취소 조건(대상 지정 불가·사망·사라짐, 거리 > 1000)이면 즉시 취소하고 쿨타임 반환(G12).
-   시전 완료 시 거리 ≤ 400이면 고정 피해 base + missPct × 잃은 체력(그 순간), 아니면 헛방(쿨타임 소모) */
+/* 데마시아의 정의 한 틱 (G12, 사용자 정정: 이전 구현은 거리 판정이 반대였음).
+   - 대상 지정 불가 · 사망 · 사라짐: 시전 중 언제든 즉시 취소하고 쿨타임 반환('취소됨').
+   - 시전 중(0.435초 안) 매 틱 거리 > 400: 즉시 헛방. 시전 종료, 쿨타임 소모, 피해 없음('빗나감').
+   - 시전 완료 틱: 거리와 무관하게 무조건 적중. 고정 피해 base + missPct × 잃은 체력(그 순간 기준). */
 function garenRTick(w, c, dt) {
   const R = SKILLS.garen.r, g = c.gr;
   g.t += dt;
   const t = unitOf(w, g.targetId);
-  if (!t || t.dead || t.untarget || edgeDist(t, c) > px(R.farCancel)) {
+  if (!t || t.dead || t.untarget) {
     c.gr = null; c.cd.r = 0;
     text(w, c.x, c.y - px(75), '취소됨', '#b8c4cf', false, c.id);
     return;
   }
-  if (g.t < R.cast - EPS) return;
+  if (g.t < R.cast - EPS) {
+    if (edgeDist(t, c) > px(R.range)) { c.gr = null; text(w, c.x, c.y - px(75), '빗나감', '#b8c4cf', false, c.id); }
+    return;
+  }
   c.gr = null;
-  if (edgeDist(t, c) > px(R.range)) { text(w, c.x, c.y - px(75), '빗나감', '#b8c4cf', false, c.id); return; }
   const dmg = R.base[g.lv - 1] + R.missPct[g.lv - 1] * (maxHpOf(t) - t.hp);
   fx(w, { fx: 'gsword', x: t.x, y: t.y });
   dealTrue(w, t, dmg);
