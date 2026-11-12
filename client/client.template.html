@@ -38,6 +38,7 @@ button { font: inherit; color: inherit; }
 #select .sub { margin: 6px 0 0; color: var(--muted); }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 320px)); gap: 14px; width: 100%; justify-content: center; }
 @media (max-width: 700px) { .cards { grid-template-columns: minmax(0, 360px); } }
+#cards > .card:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; width: min(320px, 100%); }   /* 세 번째 챔피언(가렌)은 가운데 한 줄 */
 .card { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 14px; text-align: left; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; transition: border-color .15s, background .15s, transform .15s; }
 .card:hover { background: var(--panel-hi); }
 .card[aria-pressed="true"] { border-color: var(--gold); background: var(--panel-hi); box-shadow: 0 0 0 1px var(--gold) inset, 0 6px 24px rgba(0,0,0,.45); }
@@ -82,6 +83,14 @@ button { font: inherit; color: inherit; }
 #stackN { position: absolute; right: 2px; bottom: 2px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: rgba(5,8,11,.92); border: 1px solid #8fe0ff; font-family: var(--display); font-size: 11px; line-height: 1; color: #d9f5ff; font-variant-numeric: tabular-nums; pointer-events: none; }
 #stackN.full { background: #8fe0ff; color: #04141c; }
 #mightT { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font-family: var(--display); font-size: 12px; background: rgba(120,10,20,.85); color: #fff; font-variant-numeric: tabular-nums; }
+/* 가렌 인내심: 남은 대기 시간 고리(어두운 부분이 줄어듦) · 숫자 · 회복 중 초록 빛 */
+#pIco { position: relative; }
+#passiveBtn::before { content: ""; position: absolute; inset: 0; background: conic-gradient(rgba(5,8,11,.66) calc(var(--pc, 0) * 360deg), transparent 0); pointer-events: none; }
+#passiveBtn.garen { background: radial-gradient(circle at 50% 40%, #3b2d0c, #130d04); }
+#passiveBtn.heal { border-color: #5ff08c; box-shadow: 0 0 16px rgba(95,240,140,.85); animation: garenHeal 1.1s ease-in-out infinite; }
+@keyframes garenHeal { 50% { box-shadow: 0 0 26px rgba(170,255,200,1); } }
+#pCd { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font-family: var(--display); font-size: 11px; line-height: 1.25; background: rgba(5,8,11,.88); color: #f3e3b0; font-variant-numeric: tabular-nums; pointer-events: none; }
+#pCd.heal { background: rgba(18,120,64,.92); color: #eafff1; }
 #passiveTip { z-index: 5; position: absolute; top: 72px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(330px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 32px rgba(0,0,0,.55); pointer-events: none; }
 #passiveTip h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 18px; color: var(--gold-hi); }
 #passiveTip p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--text); }
@@ -124,7 +133,19 @@ button { font: inherit; color: inherit; }
 .dots { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: #05080b; border: 1px solid #6b5a30; }
 .dots i.on { background: #ffd23f; border-color: #ffe88a; }
-@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready { animation: none; } }
+/* 가렌 스킬 상태: 심판 회전 중 E = 취소(X + 진행 고리) · 결정타 강화 중 Q = 노란 빛과 남은 시간 · 용기·데마시아의 정의 시전 = 켜짐 */
+.sk .ring, .sk .stop { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); pointer-events: none; }
+.sk .ring { transform: translate(-50%, -50%) rotate(-90deg); }
+.sk .ring circle { fill: none; stroke-width: 3; }
+.sk .ring .rb { stroke: rgba(255,255,255,.14); }
+.sk .ring .rf { stroke: #ffd23f; stroke-dasharray: 100; stroke-linecap: round; }
+.sk .stop { width: 46%; height: 46%; color: #ffb3b5; stroke-width: 2.6; }
+.sk.spin { border-color: #ffd23f; color: #fff1c2; box-shadow: 0 0 14px rgba(255,210,70,.75); }
+.sk.emp { border-color: #ffe066; box-shadow: 0 0 16px rgba(255,214,80,.9); animation: empPulse .9s ease-in-out infinite; }
+.sk.emp::after { background: conic-gradient(rgba(255,214,80,.34) calc(var(--emp, 0) * 360deg), transparent 0); }
+.sk.on { border-color: #ffd23f; box-shadow: 0 0 12px rgba(255,210,70,.7); }
+@keyframes empPulse { 50% { box-shadow: 0 0 24px rgba(255,240,160,1); } }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready, #passiveBtn.heal, .sk.emp { animation: none; } }
 /* ---------- 로비 · 대기실 · 결과 ---------- */
 .screen { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; overflow: auto; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); background: linear-gradient(180deg, rgba(8,13,19,.80), rgba(8,13,19,.93)); touch-action: pan-y; }
 .screen header { text-align: center; }
@@ -163,6 +184,8 @@ button { font: inherit; color: inherit; }
 #roomCards .card dl { display: none; }
 #roomCards .card:disabled { opacity: .55; cursor: default; }
 @media (max-width: 560px) { #roomCards { grid-template-columns: minmax(0, 1fr); } }
+#roomCards > .card:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; width: calc(50% - 5px); }
+@media (max-width: 560px) { #roomCards > .card:last-child:nth-child(odd) { width: 100%; } }
 .roomActions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .countdown { margin: 0; font-family: var(--display); font-size: 30px; color: var(--gold-hi); letter-spacing: .08em; }
 .countdown span { opacity: .3; }
@@ -255,6 +278,7 @@ button { font: inherit; color: inherit; }
       <svg id="pIco" viewBox="0 0 24 24" aria-hidden="true"></svg>
       <span id="stackN" hidden>0</span>
       <span id="mightT" hidden></span>
+      <span id="pCd" hidden></span>
     </button>
     <aside id="passiveTip" hidden role="tooltip">
       <h3 id="pTipH"></h3>

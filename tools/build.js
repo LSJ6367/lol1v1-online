@@ -34,6 +34,7 @@ function render(opts) {
     map: dataUri('assets/map.jpg', 'image/jpeg'),
     darius: dataUri('assets/darius.png', 'image/png'),
     yi: dataUri('assets/yi.png', 'image/png'),
+    garen: dataUri('assets/garen.png', 'image/png'),
     walk: JSON.parse(read('shared/walk_rle.json')),
   };
   const assetsJson = safeScript(JSON.stringify(assets));
