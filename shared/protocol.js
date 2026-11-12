@@ -21,7 +21,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 6;   // 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 7;   // 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -34,7 +34,7 @@ const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';  // 헷갈리는 0/O
 const ROOM_CODE_LEN = 4;
 const NAME_MAX = 12;
 const WIN = { kills: 1, turret: true };   // 승리 조건: 처치 1회 또는 상대 포탑 파괴 (먼저 달성한 쪽)
-const CHAMP_KEYS = ['darius', 'yi'];
+const CHAMP_KEYS = ['darius', 'yi', 'garen'];
 const SKILLS = ['q', 'w', 'e', 'r'];
 const DEV_OPS = ['air', 'ready', 'time', 'spawn', 'turretReset', 'dummyReset', 'dummyArmor'];
 

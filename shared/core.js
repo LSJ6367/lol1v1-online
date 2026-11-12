@@ -56,6 +56,11 @@ const CHAMPS = {
     name: '마스터 이',
     b: { hp: 640, hpg: 105, regen: 7.5, regeng: 0.65, mana: 251, manag: 42, mregen: 7.26, mregeng: 0.45,
          ad: 65, adg: 2.5, as: 0.679, asg: 0.025, armor: 33, armorg: 5, mr: 32, mrg: 2.05, range: 175, ms: 355 }
+  },
+  garen: {                                   // DESIGN_GAREN.md §2-1 (마나 없음: 최대 마나·재생 0)
+    name: '가렌',
+    b: { hp: 690, hpg: 98, regen: 8, regeng: 0.5, mana: 0, manag: 0, mregen: 0, mregeng: 0,
+         ad: 69, adg: 4.5, as: 0.625, asg: 0.0365, armor: 38, armorg: 4.2, mr: 32, mrg: 1.55, range: 175, ms: 340 }
   }
 };
 
@@ -94,8 +99,21 @@ const SKILLS = {
          cd: [10, 10, 10, 10, 10], drFirst: 0.7, drFirstT: 0.5, dr: [0.45, 0.475, 0.5, 0.525, 0.55], postT: 0.5, turretHalf: 0.5 },
     e: { name: '우주류 검술', max: 5, dur: 5, dmg: [20, 25, 30, 35, 40], ratio: 0.35, mana: [0, 0, 0, 0, 0], cd: [14, 14, 14, 14, 14] },
     r: { name: '최후의 전사', max: 1, dur: 7, ms: 0.4, as: 0.25, mana: [100], cd: [85] }
+  },
+  /* 가렌 (DESIGN_GAREN.md §2-3~2-6, 원문 docs/spec/garen.md). 마나 소모는 0(skMana가 garen이면 0을 돌려줌) */
+  garen: {
+    q: { name: '결정타', max: 5, dmg: [30, 60, 90, 120, 150], ratio: 1.5, silence: 1.5, ms: 0.35,
+         msT: [1.4, 1.95, 2.5, 3.05, 3.6], empT: 4.5, cd: [8, 8, 8, 8, 8] },
+    w: { name: '용기', max: 5, dur: 4, dr: [0.25, 0.29, 0.33, 0.37, 0.41], shield: [65, 85, 105, 125, 145], shieldBonusHp: 0.18,
+         shieldT: 0.75, ten: 0.6, tenT: 0.75, perKill: 0.2, maxBonus: 30, cd: [22, 19.5, 17, 14.5, 12] },
+    e: { name: '심판', max: 5, dur: 3, radius: 325, baseSpins: 7, asPerSpin: 0.25, dmg: [4, 7, 10, 13, 16],
+         ratio: [0.4, 0.43, 0.46, 0.49, 0.52], nearestBonus: 0.25, shredHits: 6, shred: 0.25, shredT: 6, cd: [9, 8.25, 7.5, 6.75, 6] },
+    r: { name: '데마시아의 정의', max: 1, range: 400, cast: 0.435, base: [125, 200, 275], missPct: [0.25, 0.3, 0.35],
+         farCancel: 1000, cd: [120, 100, 80] }
   }
 };
+/* 가렌 인내심(패시브, DESIGN_GAREN.md G5): 마지막 피해 후 8초가 지나면 초당 최대 체력의 0.5% 연속 회복 */
+const GAREN_PASSIVE = { idle: 8, perSec: 0.005 };
 const EPS = 1e-9;
 
 /* ---------------------------------------------------------------------
@@ -156,7 +174,14 @@ function makeChamp(id, key, team) {
     dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0,
     chase: null, chaseHold: false,                    // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
     bonus: { ad: 0, hp: 0, as: 0, armor: 0, mr: 0 },  // 추가 스탯(아이템 등, 지금은 0). 부활해도 유지(respawn에서 보존)
-    silence: null, shields: [], tenSrc: [], shred: null   // 침묵 {t} · 보호막 [{amt,t,src}] · 강인함 [{pct,t}] · 방어력 감소 {t,pct}
+    silence: null, shields: [], tenSrc: [], shred: null,  // 침묵 {t} · 보호막 [{amt,t,src}] · 강인함 [{pct,t}] · 방어력 감소 {t,pct}
+    /* 가렌 상태(다른 챔피언에게는 비활성). 부활하면 courage만 남고 나머지는 초기화 */
+    persT: 0,                                             // 마지막으로 피해를 받은 뒤 경과 초(인내심)
+    gq: null, gqMs: 0, gqMsPct: 0,                        // 결정타 강화 {t,lv} · 결정타 이동속도 남은 초 · 그 비율
+    gw: null,                                             // 용기 피해 감소 {t,lv}
+    ge: null,                                             // 심판 회전 {t,lv,n,done,hits:{id:횟수}}
+    gr: null,                                             // 데마시아의 정의 시전 {t,targetId,lv}
+    courage: 0                                            // 용기 영구 방어력·마법저항력 (0..30, 처치마다 +0.2)
   };
 }
 function makeDummy(id, team) {
@@ -241,13 +266,19 @@ const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
 const skillsOf = c => SKILLS[c.key];
 const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
 const skMana = (c, k) => {
+  if (c.key === 'garen') return 0;                                // 가렌: 모든 스킬 마나 소모 0 (DESIGN_GAREN.md §2-1)
   if (c.key === 'yi' && k === 'w') return SKILLS.yi.w.manaBase;   // 명상: 시전 시 40 (명상 중 초당 최대 마나 6% 유지 소모는 yiMedTick)
   const t = SKILLS[c.key][k]; return t.mana[skIdx(t, c.sk[k])];
 };
 const skCd = (c, k) => { const t = SKILLS[c.key][k]; return t.cd[skIdx(t, c.sk[k])]; };
 /* 최후의 전사: 공격속도 = 기본 공속 × (1 + 성장% + 25%), 이동속도 ×1.4 */
 const curAS = c => { const b = CHAMPS[c.key].b; return b.as * (1 + bonusASPct(c) + (c.hl > 0 ? SKILLS.yi.r.as : 0)); };
-const curMS = c => c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
+/* 이동속도: 기본 × (마스터 이 궁극기 +40%) × (가렌 결정타 +35%). 둔화는 이동 틱에서 따로 곱함 */
+const curMS = c => {
+  let m = c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
+  if (c.gqMs > 0) m *= 1 + c.gqMsPct;
+  return m;
+};
 function turretAD(t) {
   const c = TURRET_CFG;
   if (t < c.adStart) return c.ad;
@@ -266,8 +297,8 @@ function drainEvents(w) { const e = w.events; w.events = []; return e; }
 /* ---------------------------------------------------------------------
    피해 / 처치 / 상태이상
    --------------------------------------------------------------------- */
-const armorOf = u => u.kind === 'champ' ? u.stats.armor + u.bonus.armor : u.kind === 'dummy' ? (u.armor || 0) : TURRET_CFG.armor;   // 챔피언: 기본 + 추가 방어력
-const mrOf = c => c.stats.mr + c.bonus.mr;            // 마법저항력(기본 + 추가). 지금 규칙에는 마법 피해가 없어 표시용
+const armorOf = u => u.kind === 'champ' ? u.stats.armor + u.bonus.armor + (u.courage || 0) : u.kind === 'dummy' ? (u.armor || 0) : TURRET_CFG.armor;   // 챔피언: 기본 + 추가 방어력 + 용기(가렌 W 영구)
+const mrOf = c => c.stats.mr + c.bonus.mr + (c.courage || 0);   // 마법저항력(기본 + 추가 + 용기). 지금 규칙에는 마법 피해가 없어 표시용
 function physMulFor(w, target, pen) {   // pen: 물리관통력(%). 방어력 감소(target.shred)는 관통 전에 곱한다
   const shredMul = target.shred ? 1 - target.shred.pct : 1;
   let m = dmgMul(armorOf(target) * shredMul * (1 - pen / 100));
@@ -277,6 +308,7 @@ function physMulFor(w, target, pen) {   // pen: 물리관통력(%). 방어력 �
 /* 피해 적용: 피해 감소 → 보호막(먼저 깎임, 고정 피해도) → 남은 피해는 체력. 돌려주는 값과 허수아비 기록은 보호막이 막은 것까지 포함 */
 function hurt(w, t, a, fromTurret) {
   a *= dmgTakenMul(t, !!fromTurret);      // 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
+  if (a > 0 && t.kind === 'champ') t.persT = 0;   // 인내심: 보호막에 막힌 피해도 포함해서 8초를 다시 셈(DESIGN_GAREN.md G5)
   const rest = t.shields && t.shields.length ? absorbShield(t, a) : a;
   t.hp = Math.max(0, t.hp - rest);
   if (t.kind === 'dummy') { t.total += a; t.hits.push({ t: w.time, d: a }); t.idle = 0; t.flash = 0.12; }
@@ -300,20 +332,28 @@ function medTakenMul(c, fromTurret) {
 /* [가렌 W 훅] 용기(가렌 W)의 피해 감소 자리. 가렌을 만들 때 c.gw = {t, lv}가 있으면 1 - 감소율을 돌려주도록 채운다(DESIGN_GAREN.md §2-4). 지금은 항상 1 */
 function gwTakenMul(c) {
   if (!c.gw) return 1;
-  return 1;   // TODO(가렌): return 1 - SKILLS.garen.w.dr[c.gw.lv - 1];
+  return 1 - SKILLS.garen.w.dr[clamp(c.gw.lv, 1, SKILLS.garen.w.max) - 1];   // 용기: 4초 동안 받는 피해 25~41% 감소
 }
 const dealTrue = (w, t, raw) => hurt(w, t, raw);     // 고정 피해: 방어력·마법저항력·관통력 모두 무시
 
-function settle(w, t) {     // 체력이 0이면 처치 처리하고 true
+/* 처치 처리. killer(챔피언)가 가렌이면 챔피언·허수아비 처치마다 용기 +0.2 (최대 30, DESIGN_GAREN.md G8). 포탑 처치는 세지 않음 */
+function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 true
   if (t.hp > 0) return false;
-  if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); }
+  if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); grantCourage(killer); }
   else if (t.kind === 'champ') {
+    const first = !t.dead;
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
     t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.chase = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
     t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
+    t.gq = null; t.gqMs = 0; t.gqMsPct = 0; t.gw = null; t.ge = null; t.gr = null;   // 가렌 상태도 사라짐(용기는 부활 뒤에도 유지)
+    if (first) grantCourage(killer);
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
+}
+function grantCourage(k) {
+  if (!k || k.key !== 'garen' || k.kind !== 'champ') return;
+  k.courage = Math.min(SKILLS.garen.w.maxBonus, Math.round((k.courage + SKILLS.garen.w.perKill) * 1e6) / 1e6);   // 0.2 누적 오차를 없애려고 소수 6자리에서 맞춤
 }
 /* 둔화: 지속시간 × (1 - 강인함). 최후의 전사 중에는 면역. 공중에 뜸·끌려옴은 이 함수를 쓰지 않음(강인함 적용 제외) */
 function addSlow(u, pct, sec) {
@@ -435,7 +475,8 @@ function strike(w, c, t) {
   const ang = Math.atan2(t.y - c.y, t.x - c.x);
   c.lunge = 1; c.lungeDir = [Math.cos(ang), Math.sin(ang)];
   const ex = t.x - Math.cos(ang) * px(t.r) * 0.85, ey = t.y - Math.sin(ang) * px(t.r) * 0.85 - 22;
-  const dmg = dealPhys(w, c, t, ad);
+  const q = c.key === 'garen' && c.gq ? c.gq : null;   // 가렌 결정타 강화 평타: 이 타격의 피해 전체를 대체(DESIGN_GAREN.md G6)
+  const dmg = q ? dealPhys(w, c, t, SKILLS.garen.q.dmg[q.lv - 1] + SKILLS.garen.q.ratio * ad) : dealPhys(w, c, t, ad);
   fx(w, { fx: 'slash', x: ex, y: ey, ang, key: c.key, life: c.key === 'darius' ? 0.28 : 0.2 });
   text(w, ex, ey - 12, dmg < 10 ? dmg.toFixed(1) : dmg.toFixed(0), '#ffe2a8');
   if (c.key === 'yi') yiOnHit(w, c, t, false);   // 마스터 이: 패시브 스택·2연속 예약·우주류 추가 피해·일격필살 쿨 감소
@@ -447,7 +488,12 @@ function strike(w, c, t) {
     if (isChampLike(t)) addSlow(t, SK.w.slow, SK.w.slowT);
   }
   applyBleed(w, c, t);
-  if (settle(w, t) && wUsed) {   // 처치하면 마나 환급 + 남은 재사용 대기시간 50% 감소
+  const killed = settle(w, t, c);
+  if (q) {                       // 강화 평타가 나가면 강화 소모 + 대상 1.5초 침묵(챔피언·허수아비, 처치되지 않은 경우)
+    c.gq = null;
+    if (isChampLike(t) && !t.dead) addSilence(w, t, SKILLS.garen.q.silence);
+  }
+  if (killed && wUsed) {   // 처치하면 마나 환급 + 남은 재사용 대기시간 50% 감소
     c.mana = Math.min(c.stats.maxMana, c.mana + SK.w.mana[c.sk.w - 1]); c.cd.w *= SK.w.refundCd;
     text(w, c.x, c.y - px(75), '마나 환급 · 재사용 대기 -50%', '#8fd0ff');
   }
@@ -490,13 +536,130 @@ function castYi(w, c, k, say) {
   else { c.hl = SKILLS.yi.r.dur; c.slow = null; }     // 최후의 전사: 기존 둔화 제거, 지속 중 둔화 면역
 }
 
+/* ---------------------------------------------------------------------
+   가렌 (DESIGN_GAREN.md §2, 원문 docs/spec/garen.md)
+   --------------------------------------------------------------------- */
+const maxHpOf = u => u.kind === 'champ' ? u.stats.maxHp : u.maxHp;
+
+/* 데마시아의 정의 대상(G13): 사거리 400(히트박스 끝 기준) 안의 가장 가까운 적 챔피언, 없으면 가장 가까운 허수아비(연습용) */
+function garenRTarget(w, c) {
+  const lim = px(SKILLS.garen.r.range);
+  let champ = null, bc = Infinity, dummy = null, bdm = Infinity;
+  for (const u of enemiesOf(w, c)) {
+    const d = edgeDist(u, c);
+    if (d > lim) continue;
+    if (u.kind === 'champ') { if (d < bc) { champ = u; bc = d; } }
+    else if (u.kind === 'dummy') { if (d < bdm) { dummy = u; bdm = d; } }
+  }
+  return champ || dummy;
+}
+
+/* 심판 회전 종료 또는 취소: 재사용 대기시간은 이때부터 흐름(G10). 회전 중에는 cd.e가 0이라 버튼이 '취소'로 보임 */
+function stopSpin(c) { c.ge = null; c.cd.e = skCd(c, 'e'); }
+
+/* 심판 회전 시작: 회전 수 n = 7 + floor(추가 공속 / 25%) (레벨 성장 공속 포함, G9·DESIGN §2-5) */
+function startSpin(c, lv) {
+  const E = SKILLS.garen.e;
+  const n = E.baseSpins + Math.floor(bonusASPct(c) / E.asPerSpin + EPS);
+  c.atk = null; cancelChase(c);
+  c.ge = { t: 0, lv, n, done: 0, hits: {} };
+}
+
+/* 심판 타격 한 번(G9 시점마다 호출). 반지름 325 안의 적(챔피언·허수아비, 대상 지정 가능)에게 물리 피해.
+   거리 판정은 다리우스 Q와 같은 식: (중심 거리 - 상대 반지름) ≤ 내 반지름 + 325. 가장 가까운 적은 ×1.25.
+   챔피언은 한 회전에서 6번 맞으면 6초 동안 방어력 25% 감소(관통 전에 적용) */
+function garenSpinHit(w, c, S) {
+  const E = SKILLS.garen.e, i = S.lv - 1, reach = px(HIT_R + E.radius);
+  const list = [];
+  for (const t of enemiesOf(w, c)) {
+    if (t.kind === 'turret') continue;
+    const d = Math.hypot(t.x - c.x, t.y - c.y);
+    if (d - px(t.r) > reach) continue;
+    list.push(t);
+  }
+  let nearest = null, bn = Infinity;
+  for (const t of list) { const d = edgeDist(t, c); if (d < bn) { bn = d; nearest = t; } }
+  for (const t of list) {
+    const isNear = t === nearest;
+    const raw = (E.dmg[i] + E.ratio[i] * curAD(c)) * (isNear ? 1 + E.nearestBonus : 1);
+    const v = dealPhys(w, c, t, raw);
+    text(w, t.x - 10, t.y - px(50), v < 10 ? v.toFixed(1) : v.toFixed(0), isNear ? '#ffd23f' : '#ffe9a3', isNear);
+    if (t.kind === 'champ') {
+      const n = (S.hits[t.id] || 0) + 1;
+      S.hits[t.id] = n;
+      if (n === E.shredHits) t.shred = { t: E.shredT, pct: E.shred };   // 6번째 타격에 방어력 감소(다시 맞으면 6초로 갱신)
+    }
+    settle(w, t, c);
+  }
+  fx(w, { fx: 'gspin', owner: c.id });
+}
+
+/* 심판 한 틱: 3초 동안 회전. 타격은 (k+0.5)×3/n 초에 한 번씩. 공중에 뜸·끌려옴·침묵과 무관하게 계속 돈다 */
+function garenSpinTick(w, c, dt) {
+  const S = c.ge, E = SKILLS.garen.e;
+  S.t += dt;
+  while (S.done < S.n && S.t >= (S.done + 0.5) * E.dur / S.n - EPS) { S.done++; garenSpinHit(w, c, S); }
+  if (c.ge && S.t >= E.dur - EPS) stopSpin(c);
+}
+
+/* 데마시아의 정의 한 틱: 시전 중 취소 조건(대상 지정 불가·사망·사라짐, 거리 > 1000)이면 즉시 취소하고 쿨타임 반환(G12).
+   시전 완료 시 거리 ≤ 400이면 고정 피해 base + missPct × 잃은 체력(그 순간), 아니면 헛방(쿨타임 소모) */
+function garenRTick(w, c, dt) {
+  const R = SKILLS.garen.r, g = c.gr;
+  g.t += dt;
+  const t = unitOf(w, g.targetId);
+  if (!t || t.dead || t.untarget || edgeDist(t, c) > px(R.farCancel)) {
+    c.gr = null; c.cd.r = 0;
+    text(w, c.x, c.y - px(75), '취소됨', '#b8c4cf', false, c.id);
+    return;
+  }
+  if (g.t < R.cast - EPS) return;
+  c.gr = null;
+  if (edgeDist(t, c) > px(R.range)) { text(w, c.x, c.y - px(75), '빗나감', '#b8c4cf', false, c.id); return; }
+  const dmg = R.base[g.lv - 1] + R.missPct[g.lv - 1] * (maxHpOf(t) - t.hp);
+  fx(w, { fx: 'gsword', x: t.x, y: t.y });
+  dealTrue(w, t, dmg);
+  text(w, t.x, t.y - px(62), `${dmg.toFixed(0)} 고정 피해`, '#ffd23f', true);
+  settle(w, t, c);
+}
+
+/* 가렌 스킬 시전. 공통 검사(레벨·침묵·쿨타임·공중)는 castSkill에서 끝낸 뒤 호출. 마나는 0이라 소모 없음 */
+function castGaren(w, c, k, say) {
+  const G = SKILLS.garen, lv = c.sk[k];
+  if (k === 'q') {                                                // 결정타: 즉발. 둔화 제거 · 이동속도 · 다음 평타 강화
+    c.atk = null; cancelChase(c);
+    c.slow = null;
+    c.gqMs = G.q.msT[lv - 1]; c.gqMsPct = G.q.ms;
+    c.gq = { t: G.q.empT, lv };
+    c.cd.q = skCd(c, 'q');                                        // 강화 중에는 updateChamp에서 쿨타임이 멈춰 있음
+  } else if (k === 'w') {                                         // 용기: 피해 감소 · 보호막 · 강인함
+    c.atk = null; cancelChase(c);
+    c.gw = { t: G.w.dur, lv };
+    addShield(c, G.w.shield[lv - 1] + G.w.shieldBonusHp * bonusHP(c), G.w.shieldT, 'garenW');
+    addTenacity(c, G.w.ten, G.w.tenT);
+    c.cd.w = skCd(c, 'w');
+  } else if (k === 'e') {                                         // 심판: 다시 누르면 취소
+    if (c.ge) { stopSpin(c); return; }
+    startSpin(c, lv);
+  } else {                                                        // 데마시아의 정의: 대상이 없으면 아무 비용 없음
+    const tgt = garenRTarget(w, c);
+    if (!tgt) { say('사거리 내 대상 없음'); return; }
+    if (c.ge) stopSpin(c);                                        // 회전 즉시 멈추고 궁극기 시전
+    c.atk = null; cancelChase(c);
+    c.cd.r = skCd(c, 'r');
+    c.gr = { t: 0, targetId: tgt.id, lv };
+    c.facing = tgt.x < c.x ? -1 : 1;
+    fx(w, { fx: 'gmark', targetId: tgt.id, life: G.r.cast });
+  }
+}
+
 function castSkill(w, c, k, ang) {
   if (c.dead || !skillsOf(c) || !SKILL_KEYS.includes(k)) return;
   const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
   const lv = c.sk[k];
   if (c.air > 0 || c.pull) return;
   if (!lv) { say('스킬 레벨 0 · ▲로 레벨업'); return; }
-  if (c.cast) return;
+  if (c.cast || c.gr) return;                         // 시전 중(다리우스·마스터 이 시전, 가렌 궁극기)에는 다른 스킬 불가
   if (c.silence) { say('침묵', '#c9a2ff'); return; }   // 침묵: 시전 불가(마나·쿨타임 소모 없음). 레벨업은 위에서처럼 가능
   if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }   // 강화 중에는 W 쿨타임이 멈춰 있으므로 쿨타임 검사보다 먼저 봄
   if (c.cd[k] > 0) { say('재사용 대기 중'); return; }
@@ -504,6 +667,7 @@ function castSkill(w, c, k, ang) {
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
   if (!Number.isFinite(ang)) ang = c.facing < 0 ? Math.PI : 0;
+  if (c.key === 'garen') { castGaren(w, c, k, say); return; }   // 가렌: 마나 0, 평타·추적 취소는 castGaren 안에서
   let tgt = null;
   if (k === 'r') { tgt = ultTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }
   c.mana -= cost; c.cd[k] = skCd(c, k);
@@ -645,7 +809,7 @@ function yiMedTick(w, c, dt) {
 }
 
 function respawn(w, c) {
-  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus };   // 추가 스탯(아이템)은 부활해도 유지
+  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus, courage: c.courage };   // 추가 스탯(아이템)·가렌 용기는 부활해도 유지. 스킬 레벨도 유지
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
 }
 
@@ -656,7 +820,7 @@ function chaseTick(w, c, locked) {
   if (c.in.mx || c.in.my) { cancelChase(c); return null; }                         // 조이스틱: 취소(버튼을 뗄 때까지 재추적 금지)
   if (locked || !t || t.dead || t.untarget || edgeDist(t, c) > px(CHASE.search + 300)) { c.chase = null; return null; }
   if (edgeDist(t, c) <= atkRange(c)) {
-    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
+    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq && !c.ge && !c.gr) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
     return { dx: 0, dy: 0 };
   }
   const dx = t.x - c.x, dy = t.y - c.y, d = Math.hypot(dx, dy) || 1;
@@ -670,6 +834,11 @@ function updateChamp(w, c, dt) {
   c.mana = Math.min(s.maxMana, c.mana + s.manaRegen / 5 * dt);    // 마나 재생: 5초당 수치만큼
   c.might = Math.max(0, c.might - dt);
   c.medPost = Math.max(0, c.medPost - dt);
+  c.persT += dt;                                                  // 인내심: 마지막 피해 후 경과 시간(피해 받을 때 0으로)
+  if (c.key === 'garen' && c.persT >= GAREN_PASSIVE.idle - EPS) c.hp = Math.min(s.maxHp, c.hp + s.maxHp * GAREN_PASSIVE.perSec * dt);
+  if (c.gq) { c.gq.t -= dt; if (c.gq.t <= 0) c.gq = null; }          // 결정타 강화 4.5초 (평타가 나가면 strike에서 소모)
+  c.gqMs = Math.max(0, c.gqMs - dt);                              // 결정타 이동속도 남은 시간
+  if (c.gw) { c.gw.t -= dt; if (c.gw.t <= 0) c.gw = null; }          // 용기 피해 감소 4초
   tickStatus(w, c, dt);
   if (c.dead) return;
 
@@ -677,7 +846,8 @@ function updateChamp(w, c, dt) {
   const locked = c.air > 0 || !!c.pull;
   if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소
   // 쿨타임. 다리우스 W는 강화(wBuff)가 켜져 있는 동안 멈춰 있다가 강화 평타가 나간 뒤부터 흐름
-  for (const k of SKILL_KEYS) if (!(k === 'w' && c.wBuff)) c.cd[k] = Math.max(0, c.cd[k] - dt);
+  // 가렌 Q는 결정타 강화(gq) 동안 멈춰 있다가 강화가 끝나면(평타 또는 만료) 흐름
+  for (const k of SKILL_KEYS) if (!(k === 'w' && c.wBuff) && !(k === 'q' && c.gq)) c.cd[k] = Math.max(0, c.cd[k] - dt);
 
   // 학살 준비 → 휘두르기
   if (c.qPrep) { c.qPrep.t += dt; if (c.qPrep.t >= c.qPrep.dur) { const lv = c.qPrep.lv; c.qPrep = null; doDecimate(w, c, lv); } }
@@ -694,6 +864,10 @@ function updateChamp(w, c, dt) {
     if (k.t >= k.dur) { c.cast = null; finishCast(w, c, k); }
   }
   if (c.dead) return;
+  // 가렌: 심판 회전(공중에 뜨거나 끌려가도 계속 돎), 데마시아의 정의 시전
+  if (c.ge) garenSpinTick(w, c, dt);
+  if (c.gr && !c.dead) garenRTick(w, c, dt);
+  if (c.dead) return;
 
   // 마스터 이: 일격필살 진행 · 2연속 두 번째 타격 대기 · 명상 · 우주류/최후의 전사 타이머
   if (c.yq) yiAlphaTick(w, c, dt);
@@ -709,7 +883,7 @@ function updateChamp(w, c, dt) {
   // 이동 (평타 추적 중이면 이번 틱 방향은 대상 쪽. 추적이 사거리 안에서 평타를 시작하면 아래 잠금에 의해 멈춤)
   let mx = c.in.mx, my = c.in.my;
   if (c.chase) { const ch = chaseTick(w, c, locked); if (ch) { mx = ch.dx; my = ch.dy; } }
-  if (c.atk || c.cast || locked || c.yq || c.med) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상 중, 공중에 뜬 동안에는 멈춤
+  if (c.atk || c.cast || locked || c.yq || c.med || c.gr) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상·데마시아의 정의 시전 중, 공중에 뜬 동안에는 멈춤 (심판 회전 중에는 이동 가능)
   c.moving = !!(mx || my);
   if (c.moving) {
     const sp = px(curMS(c)) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
@@ -719,7 +893,7 @@ function updateChamp(w, c, dt) {
 
   // 평타 입력
   if (!c.in.atk) c.chaseHold = false;                  // 평타 버튼을 떼면 재추적 금지 해제
-  if (!locked && !c.cast && !c.yq && c.in.atk) {
+  if (!locked && !c.cast && !c.yq && !c.ge && !c.gr && c.in.atk) {   // 가렌: 심판 회전·궁극기 시전 중에는 평타·자동 추적 시작 안 함(G11)
     const t = c.chase ? null : targetInRange(w, c);   // 추적 중에는 쫓는 챔피언만 노림(가는 길에 포탑·허수아비가 사거리에 들어와도 무시)
     if (c.chase) { /* chaseTick이 처리 */ }
     else if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
@@ -842,6 +1016,8 @@ return {
   bonusAD, totalAD, bonusHP, bonusASPct, armorOf, mrOf,
   addShield, shieldOf, addTenacity, tenacityOf, addSilence,
   // 마스터 이 (화면 전용 조회)
-  SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget
+  SKILLS, YI_PASSIVE, skillsOf, curAS, curMS, dmgTakenMul, yiQTarget,
+  // 가렌 (DESIGN_GAREN.md §2): 데마시아의 정의 대상, 인내심 상수
+  GAREN_PASSIVE, garenRTarget
 };
 });
