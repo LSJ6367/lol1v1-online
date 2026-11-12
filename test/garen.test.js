@@ -572,5 +572,31 @@ const spinCount = bonusAS => { const w = mk(), c = gar(w); c.bonus.as = bonusAS;
   run(w, 5.2);
   ok('8 부활 → 인내심 타이머·상태 초기화, 용기 4 유지', !g.dead && g.persT < 1 && g.gq === null && g.courage === 4 && g.ge === null, `persT ${g.persT.toFixed(2)} courage ${g.courage}`); }
 
+
+// ---------------------------------------------------------------------
+// 5x. (사용자 확인 요청) 심판 중 실제 다리우스 E에 끌려가도 / 상대 가렌 결정타로 침묵돼도 회전이 끝까지 7타
+// ---------------------------------------------------------------------
+for (const enemyKey of ['darius', 'garen']) {
+  const w = Core.createWorld({ players: [{ id: 'g', key: 'garen', team: 0 }, { id: 'x', key: enemyKey, team: 1 }], dummy: false });
+  w.turrets.forEach(t => { t.dead = true; });
+  const g = w.champs.find(c => c.id === 'g'), x = w.champs.find(c => c.id === 'x');
+  g.x = 600; g.y = 500; x.x = 660; x.y = 500;
+  for (const k of ['e']) Core.step(w, [{ type: 'levelup', id: 'g', skill: k }]);
+  for (const k of ['q', 'e']) Core.step(w, [{ type: 'levelup', id: 'x', skill: k }]);
+  Core.step(w, [{ type: 'cast', id: 'g', skill: 'e', ang: 0 }]);
+  for (let i = 0; i < 20; i++) Core.step(w, []);
+  if (enemyKey === 'darius') { x.x = g.x + 100; Core.step(w, [{ type: 'cast', id: 'x', skill: 'e', ang: Math.PI }]); }
+  else { Core.step(w, [{ type: 'cast', id: 'x', skill: 'q', ang: 0 }]); Core.step(w, [{ type: 'input', id: 'x', mx: 0, my: 0, atk: true }]); }
+  let hitByCC = false, maxDone = 0, endedEarly = false;
+  for (let i = 0; i < 200 && (g.ge || i < 5); i++) {
+    Core.step(w, []);
+    if (enemyKey === 'darius' ? (g.pull || g.air > 0) : g.silence) hitByCC = true;
+    if (g.ge) maxDone = Math.max(maxDone, g.ge.done); else if (maxDone < 7) endedEarly = true;
+  }
+  const what = enemyKey === 'darius' ? '다리우스 E 끌려옴' : '가렌 결정타 침묵';
+  ok(`5x ${what}이 실제로 걸림`, hitByCC);
+  ok(`5x ${what} 중에도 심판이 취소되지 않고 7타 모두 들어감`, !endedEarly && maxDone >= 6, `최대 ${maxDone}타 기록`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
