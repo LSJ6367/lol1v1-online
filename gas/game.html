@@ -223,7 +223,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>32D61E</b></p>
+    <p class="buildVer">버전 <b>8E7B7E</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -542,7 +542,7 @@ const bleedTotal = (c, n) => n * bleedPerStack(c) + curAD(c) * BLEED.ratio * n;
 const skillsOf = c => SKILLS[c.key];
 const skIdx = (t, lv) => Math.min(Math.max(lv, 1), t.max) - 1;
 const skMana = (c, k) => {
-  if (c.key === 'yi' && k === 'w') { const w = SKILLS.yi.w; return w.manaBase + w.manaPct * c.stats.maxMana; }   // 명상: 40 + 최대 마나 6%
+  if (c.key === 'yi' && k === 'w') return SKILLS.yi.w.manaBase;   // 명상: 시전 시 40 (명상 중 초당 최대 마나 6% 유지 소모는 yiMedTick)
   const t = SKILLS[c.key][k]; return t.mana[skIdx(t, c.sk[k])];
 };
 const skCd = (c, k) => { const t = SKILLS[c.key][k]; return t.cd[skIdx(t, c.sk[k])]; };
@@ -871,10 +871,13 @@ function yiAppear(w, c) {
   c.facing = tx < c.x ? -1 : 1;
   fx(w, { fx: 'blink', x: c.x, y: c.y, out: false });
 }
-/* 명상 한 틱: 끊김 판정(A5) → 회복 · 1초마다 스택 · 4초 후 종료 */
+/* 명상 한 틱: 끊김 판정(A5) → 유지 마나 소모(초당 최대 마나 6%) · 마나 0이면 즉시 종료 → 회복 · 1초마다 스택 · 4초 후 종료 */
 function yiMedTick(w, c, dt) {
   const S = SKILLS.yi.w, m = c.med;
   if (c.in.mx || c.in.my || c.in.atk || c.air > 0 || c.pull) { endMed(c); return; }
+  const drain = S.manaPct * c.stats.maxMana * dt;
+  if (c.mana < drain) { c.mana = 0; endMed(c); return; }   // 마나가 0 아래로 내려가면 0으로 맞추고 끊김과 같은 경로로 종료(종료 후 0.5초 피해 감소 유지)
+  c.mana -= drain;
   m.t += dt; m.stackT += dt;
   if (m.stackT >= 1 - EPS) { m.stackT -= 1; c.dstack = Math.min(3, c.dstack + 1); }
   const heal = (S.heal[m.lv - 1] + S.apRatio * c.stats.ap) * (1 + (c.stats.maxHp - c.hp) / c.stats.maxHp) * dt;
@@ -1081,7 +1084,7 @@ return {
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 3;
+const VERSION = 4;
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림

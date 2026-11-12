@@ -202,13 +202,47 @@ function clearRun(len) {
 { const w = mk(), c = w.champs[0], d = D(w); quiet(c); lvl(w, c, { w: 1 });
   c.hp = c.stats.maxHp - 300; const hp0 = c.hp, m0 = c.mana;
   Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
-  ok('4a 마나 = 40 + 최대 마나 6%', near(m0 - c.mana, 40 + 0.06 * c.stats.maxMana, 1e-6), (m0 - c.mana).toFixed(3));
+  ok('4a 시전 마나 40 (skMana = 40, 시전 틱의 유지 소모 1틱 포함)', Core.skMana(c, 'w') === 40 && near(m0 - c.mana, 40 + 0.06 * c.stats.maxMana * TICK, 1e-6), (m0 - c.mana).toFixed(4));
   ok('4a 쿨타임 10초, 시전 즉시 시작', near(c.cd.w, 10, TICK + EPS), c.cd.w.toFixed(4));
   const heal1 = c.hp - hp0, exp1 = 30 * (1 + 300 / c.stats.maxHp) * TICK;
   ok('4a 1틱 회복 = (30 + 0.25×주문력) × (1 + 잃은 체력%) × dt', near(heal1, exp1, 1e-6), heal1.toFixed(5) + ' / ' + exp1.toFixed(5));
   run(w, 0.99);
   const gain = c.hp - hp0;   // 1초 동안 누적. 잃은 체력이 줄면서 회복이 조금씩 줄어드는 것까지 포함한 값
   ok('4a 1초 누적 회복 ≈ 37.09 (잃은 체력 300 기준, 1레벨 30/초)', near(gain, 37.09, 0.3), gain.toFixed(3));
+}
+{ const w = mk(), c = w.champs[0]; lvl(w, c, { w: 1 });   // 마나 재생은 켜 둔 채: 1초 명상 → 마나 감소 = 0.06×최대 마나 − 마나재생/5
+  const M = c.stats.maxMana, R = c.stats.manaRegen;
+  c.mana = M;
+  Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
+  const m1 = c.mana;
+  run(w, 1.0);
+  const drop = m1 - c.mana, exp = 0.06 * M - R / 5;
+  ok('4a 명상 1초 마나 감소 = 0.06×최대 마나 − 마나재생/5', !!c.med && near(drop, exp, 1e-6), drop.toFixed(4) + ' / ' + exp.toFixed(4));
+}
+{ const w = mk(), c = w.champs[0]; quiet(c); lvl(w, c, { w: 1 });   // 마나 39: 시전 불가 (마나·쿨타임 소모 없음)
+  c.mana = 39;
+  Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
+  ok('4a 마나 39면 명상 시전 불가', !c.med && c.mana === 39 && c.cd.w === 0 && Core.skMana(c, 'w') === 40, c.mana);
+}
+{ const w = mk(), c = w.champs[0]; quiet(c); lvl(w, c, { w: 1 });   // 마나 정확히 40: 시전됨. 첫 틱에 마나가 0이 되어 즉시 종료(종료 후 0.5초 감소)
+  c.mana = 40;
+  Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
+  ok('4a 마나 정확히 40이면 시전, 첫 틱에 바닥나 즉시 종료', c.cd.w > 9 && c.mana === 0 && !c.med && c.medPost > 0, 'cd=' + c.cd.w.toFixed(3) + ' mana=' + c.mana);
+}
+{ const w = mk(), c = w.champs[0]; lvl(w, c, { w: 1 });   // 마나 45 → 시전 40 소모 → 5. 유지 소모가 재생보다 커서 5초 안에 바닥나면 즉시 종료
+  const M = c.stats.maxMana, R = c.stats.manaRegen, expEnd = 5 / (0.06 * M - R / 5);
+  c.mana = 45;
+  const t0 = w.time;
+  Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
+  let g = 0;
+  while (c.med && g++ < steps(10)) Core.step(w, []);
+  const endT = w.time - t0;
+  ok('4e 마나 바닥 → 명상 즉시 종료(예상 ' + expEnd.toFixed(3) + '초, 한 틱 오차 안), 마나 0으로 고정', !c.med && Math.abs(endT - expEnd) <= TICK + 1e-9 && c.mana === 0, endT.toFixed(4) + ' / ' + expEnd.toFixed(4) + ' mana=' + c.mana);
+  ok('4e 바닥나서 끝나도 종료 후 0.5초 피해 감소(1레벨 45%) 유지', near(c.medPost, 0.5, 1e-9) && near(Core.dmgTakenMul(c, false), 0.55, 1e-9), c.medPost.toFixed(4));
+  run(w, 0.4);
+  ok('4e 종료 0.4초 뒤에도 감소 유지', near(Core.dmgTakenMul(c, false), 0.55, 1e-9) && c.medPost > 0);
+  run(w, 0.2);
+  ok('4e 종료 0.6초 뒤 감소 없음', near(Core.dmgTakenMul(c, false), 1, 1e-9) && c.medPost === 0);
 }
 { const w = mk(), c = w.champs[0]; quiet(c); lvl(w, c, { w: 1 });
   Core.step(w, [cmd('cast', c.id, { skill: 'w', ang: 0 })]);
