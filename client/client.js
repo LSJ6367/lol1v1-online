@@ -329,12 +329,19 @@ window.Game = {
 /* =====================================================================
    코어 이벤트 → 화면 효과
    ===================================================================== */
-const FX_LIFE = { blink: 0.36, yslash: 0.18 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
+const FX_LIFE = { blink: 0.36, yslash: 0.22 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
+/* 일격필살 타격마다 베는 방향: ang + π/2 기준 오프셋. 클라이언트가 타격 번호를 모르므로 받은 순서대로 순환(결정적) */
+const YSLASH_OFF = [-0.9, 0.7, -0.3, 1.2];
+let yslashN = 0;
 function handleEvents() {
   const myId = session.myId;
   for (const ev of session.drainEvents()) {
     if (ev.type === 'text') { if (!ev.to || ev.to === myId) texts.push({ x: ev.x, y: ev.y, txt: ev.txt, color: ev.color, big: ev.big, t: 0, life: 0.9, dx: (Math.random() - .5) * 10 }); }
-    else if (ev.type === 'fx') fxList.push(Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 }));
+    else if (ev.type === 'fx') {
+      const o = Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 });
+      if (o.fx === 'yslash') o.dir = o.ang + Math.PI / 2 + YSLASH_OFF[yslashN++ % YSLASH_OFF.length];
+      fxList.push(o);
+    }
     else if (ev.type === 'banner') showBanner(ev.txt, ev.bad, ev.sec);
   }
 }
@@ -639,19 +646,33 @@ function drawFx() {
       ctx.translate(f.x - Math.sin(f.ang) * side, f.y + Math.cos(f.ang) * side);
       ctx.beginPath(); ctx.arc(0, 0, 19, a0, a0 + dir * s, dir < 0); ctx.lineWidth = 2.2; ctx.strokeStyle = '#f2fdff'; ctx.stroke();
       ctx.beginPath(); ctx.arc(0, 0, 24, a0, a0 + dir * s * 0.9, dir < 0); ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(120,225,255,.95)'; ctx.stroke();
-    } else if (f.fx === 'yslash') {   // 일격필살 타격: 밝은 노란색 X자 베기(두 줄 + 빛), 0.18초
-      const L = 27 * (0.5 + 0.5 * Math.min(1, p * 4));
-      ctx.translate(f.x, f.y); ctx.globalAlpha = 1 - p * p;
-      for (const da of [Math.PI / 4, -Math.PI / 4]) {
-        const ux = Math.cos(f.ang + da) * L, uy = Math.sin(f.ang + da) * L;
-        ctx.beginPath(); ctx.moveTo(-ux, -uy); ctx.lineTo(ux, uy);
-        ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(255,205,40,.32)'; ctx.stroke();
-        ctx.lineWidth = 3.2; ctx.strokeStyle = '#ffe420'; ctx.stroke();
-        ctx.lineWidth = 1.1; ctx.strokeStyle = '#fffbe2'; ctx.stroke();
-      }
-      ctx.fillStyle = '#fff6a6'; ctx.beginPath(); ctx.arc(0, 0, 1.5 + 3 * (1 - p), 0, 7); ctx.fill();
+    } else if (f.fx === 'yslash') {   // 일격필살 타격: 노란 긴 한 줄 베기(양끝 가늘고 가운데 굵음, 길이 100px).
+      // 앞 35% 동안 한쪽 끝에서 반대쪽 끝까지 그어지고(머리가 나아감), 이후 페이드. 타격마다 방향이 다름(f.dir)
+      const HALF = 50, W0 = 3, N = 18;                       // 반길이, 가운데 반두께(→ 두께 6px), 분할 수
+      const g = Math.min(1, p / 0.35), s = 1 - (1 - g) * (1 - g);   // 그어짐 0→1(ease-out)
+      const ux = Math.cos(f.dir), uy = Math.sin(f.dir), nx = -uy, ny = ux;
+      const slab = wk => {   // 보이는 구간(시작 끝 → 머리) 의 칼날 모양 외곽선 채우기
+        ctx.beginPath();
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, v = -1 + 2 * s * t, w = W0 * wk * Math.pow(Math.sin(Math.PI * t), 0.7);
+          ctx.lineTo(v * HALF * ux + nx * w, v * HALF * uy + ny * w);
+        }
+        for (let i = N; i >= 0; i--) {
+          const t = i / N, v = -1 + 2 * s * t, w = W0 * wk * Math.pow(Math.sin(Math.PI * t), 0.7);
+          ctx.lineTo(v * HALF * ux - nx * w, v * HALF * uy - ny * w);
+        }
+        ctx.closePath(); ctx.fill();
+      };
+      ctx.translate(f.x, f.y - 24);   // 몸통 높이로 올림(타격 지점은 발 근처)
+      ctx.globalAlpha = p < 0.35 ? 1 : (1 - (p - 0.35) / 0.65) ** 2;
+      ctx.fillStyle = 'rgba(255,170,30,.22)'; slab(3.2);   // 바깥 주황빛
+      ctx.fillStyle = 'rgba(255,205,60,.44)'; slab(1.9);   // 안쪽 노란빛
+      const cg = ctx.createLinearGradient(-HALF * ux, -HALF * uy, HALF * ux, HALF * uy);   // 본체: 끝 #ffd23f → 가운데 #fff6b0
+      cg.addColorStop(0, '#ffd23f'); cg.addColorStop(0.5, '#fff6b0'); cg.addColorStop(1, '#ffd23f');
+      ctx.fillStyle = cg; slab(1);
+      ctx.fillStyle = 'rgba(255,255,244,.9)'; slab(0.32);  // 한가운데 밝은 심
     } else if (f.fx === 'blink') {   // 사라짐: 잔상(반투명 본체가 떠오르며 흐려짐) + 빛 퍼프. 나타남: 빛 퍼프만
-      ctx.translate(f.x, f.y);
+      ctx.translate(f.x, f.y - 24);
       if (f.out && imgs.yi) {   // 블링크는 마스터 이만 씀
         const sh = SPRITE_H.yi, sw = sh * imgs.yi.width / imgs.yi.height;
         ctx.globalAlpha = (1 - p) * 0.5; ctx.translate(0, -p * 8);
