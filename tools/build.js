@@ -36,6 +36,7 @@ function render(opts) {
     yi: dataUri('assets/yi.png', 'image/png'),
     garen: dataUri('assets/garen.png', 'image/png'),
     aatrox: dataUri('assets/aatrox.png', 'image/png'),
+    aatrox_r: dataUri('assets/aatrox_r.png', 'image/png'),   // 세계의 종결자 중 모습(DESIGN_AATROX §3)
     walk: JSON.parse(read('shared/walk_rle.json')),
   };
   const assetsJson = safeScript(JSON.stringify(assets));

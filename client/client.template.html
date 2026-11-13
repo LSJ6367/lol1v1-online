@@ -158,7 +158,7 @@ button { font: inherit; color: inherit; }
 .sk.emp { border-color: #ffe066; box-shadow: 0 0 16px rgba(255,214,80,.9); animation: empPulse .9s ease-in-out infinite; }
 .sk.emp::after { background: conic-gradient(rgba(255,214,80,.34) calc(var(--emp, 0) * 360deg), transparent 0); }
 .sk.on { border-color: #ffd23f; box-shadow: 0 0 12px rgba(255,210,70,.7); }
-/* 아트록스 스킬: 어두운 붉은 버튼. Q 단계 배지(1·2·3, 오른쪽 위 바깥)와 재사용 창 고리(얇은 빨강, 창이 줄어듦). 준비 중(W·E·R): 흐림 + 자물쇠 */
+/* 아트록스 스킬: 어두운 붉은 버튼. Q 단계 배지(1·2·3, 오른쪽 위 바깥)와 재사용 창 고리(얇은 빨강, 창이 줄어듦) */
 .sk.aat { background: radial-gradient(circle at 40% 35%, #3a0d14, #100507); border-color: #8e1b26; color: #ff8a8a; }
 .sk.aat.aqon { border-color: #ff4a57; box-shadow: 0 0 12px rgba(255,60,70,.8); }
 .sk .arng { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%) rotate(-90deg); pointer-events: none; }
@@ -166,9 +166,6 @@ button { font: inherit; color: inherit; }
 .sk .arng .rb { stroke: rgba(255,60,70,.16); }
 .sk .arng .arf { stroke: #ff4a57; stroke-dasharray: 100; stroke-linecap: round; }
 .stg { position: absolute; right: -5px; top: -5px; z-index: 3; min-width: 19px; height: 19px; padding: 0 4px; display: grid; place-items: center; border-radius: 10px; background: #ff3d4d; border: 1.5px solid #1b0306; color: #fff; font-family: var(--display); font-size: 12px; line-height: 1; box-shadow: 0 0 8px rgba(255,50,70,.85); pointer-events: none; font-variant-numeric: tabular-nums; }
-.sk.locked { filter: grayscale(.85) brightness(.6); opacity: .8; }
-.sk.locked svg:not(.lockI) { opacity: .55; }
-.sk .lockI { position: absolute; right: 6%; bottom: 6%; width: 34%; height: 34%; color: #d6dde5; stroke-width: 2.4; }
 @keyframes empPulse { 50% { box-shadow: 0 0 24px rgba(255,240,160,1); } }
 @media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready, #passiveBtn.heal, #passiveBtn.aatrox.ready, .sk.emp { animation: none; } }
 /* ---------- 로비 · 대기실 · 결과 ---------- */

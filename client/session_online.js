@@ -75,7 +75,7 @@ class OnlineSession {
     switch (cmd.type) {
       case 'input':
         this.held.mx = Number(cmd.mx) || 0; this.held.my = Number(cmd.my) || 0; this.held.atk = !!cmd.atk; break;
-      case 'cast': this.acts.push({ k: 'cast', skill: cmd.skill, ang: cmd.ang }); break;
+      case 'cast': { const a = { k: 'cast', skill: cmd.skill, ang: cmd.ang }; if (cmd.aimed) a.aimed = true; this.acts.push(a); break; }   // aimed: 스킬 버튼을 끌어서 조준(돌진 방향)
       case 'levelup': this.acts.push({ k: 'lv', skill: cmd.skill }); break;
       case 'dev': if (this.test) this.acts.push({ k: 'dev', op: cmd.op, sec: cmd.sec }); break;
     }

@@ -13,11 +13,13 @@ const { TICK, MAP_W, MAP_H, HIT_R, SK, BLEED, TURRET_CFG, CHAMPS, SKILL_KEYS, px
 const VIEW_H = 576, VIEW_MIN_W = 816;                 // 컨셉 화면 기준 카메라 영역(px)
 const SPRITE_H = { darius: 56, yi: 58, garen: 60, aatrox: 62 };   // 스프라이트 높이(px). 아트록스는 검이 위로 길어서 키가 큼
 const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39, aatrox: 0.52 };   // 발 위치(가로 비율)
+const SPRITE_H_R = 72, SPRITE_AX_R = 0.64;            // 아트록스 세계의 종결자 모습(날개 달린 형태, 200×220 원본, 발 중심 가로 0.64). 조금 더 크게
+/* 챔피언이 지금 그려질 스프라이트 높이·발 위치: 아트록스 R 중에는 날개 모습 */
+const spriteH = c => (c.key === 'aatrox' && c.ar ? SPRITE_H_R : SPRITE_H[c.key]);
+const spriteAx = c => (c.key === 'aatrox' && c.ar ? SPRITE_AX_R : SPRITE_AX[c.key]);
 const GAR = Core.SKILLS.garen;                        // 가렌 수치(화면 표시·범위용). 규칙은 Core가 계산
 const AQ = Core.SKILLS.aatrox.q;                      // 아트록스 Q 수치(시전 시간·재사용 창, 화면 표시용)
-/* 아직 만들지 않은 스킬: 화면에서 "준비 중"(흐림 + 자물쇠)으로 보이고, 누르기·레벨업을 보내지 않음. 아트록스 W·E·R (DESIGN_AATROX §3) */
-const LOCKED_SKILLS = { aatrox: ['w', 'e', 'r'] };
-const isLockedSkill = (key, k) => (LOCKED_SKILLS[key] || []).includes(k);
+const AW = Core.SKILLS.aatrox.w, AE = Core.SKILLS.aatrox.e, AR = Core.SKILLS.aatrox.r;   // 지옥사슬·파멸의 돌진·세계의 종결자 수치(화면 표시용)
 const spinLocked = me => !!me && me.key === 'garen' && !!me.ge && me.ge.t < GAR.e.cancelLock - 1e-9;   // 심판 시작 뒤 cancelLock초: E 취소 불가(Core castGaren과 같은 판정)
 const fmt = (n, d = 0) => Number(n).toFixed(d);
 const dmgTxt = n => n < 10 ? fmt(n, 1) : fmt(n, 0);
@@ -29,7 +31,17 @@ Core.setMap(A.walk);
 
 const imgs = {};
 function loadImg(k, src) { return new Promise(res => { const i = new Image(); i.onload = () => { imgs[k] = i; res(); }; i.src = src; }); }
-const ready = Promise.all([loadImg('map', A.map), loadImg('darius', A.darius), loadImg('yi', A.yi), loadImg('garen', A.garen), loadImg('aatrox', A.aatrox)]);
+const ready = Promise.all([loadImg('map', A.map), loadImg('darius', A.darius), loadImg('yi', A.yi), loadImg('garen', A.garen), loadImg('aatrox', A.aatrox), loadImg('aatrox_r', A.aatrox_r)]);
+/* 틴트된 스프라이트(검붉은 잔상용). 처음 쓸 때 한 번 만들어 둠 */
+const tintCache = {};
+function tintedSprite(key) {
+  if (tintCache[key]) return tintCache[key];
+  const img = imgs[key], t = document.createElement('canvas');
+  t.width = img.width; t.height = img.height;
+  const g = t.getContext('2d'); g.drawImage(img, 0, 0);
+  g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(150,8,22,0.8)'; g.fillRect(0, 0, t.width, t.height);
+  return (tintCache[key] = t);
+}
 
 /* 세션(LocalSession / OnlineSession)은 session_local.js, session_online.js 에 있다. 여기서는 인터페이스만 사용 */
 let session = null;      // null이면 챔피언 선택 화면
@@ -48,19 +60,30 @@ const P2 = u => session.pos(u);
    ===================================================================== */
 const input = { jx: 0, jy: 0, atkTouch: false, atkKey: false, keys: new Set() };
 let lastSent = '';
-function sendInput() {
-  const me = ME(); if (!me) return;
+/* 이동 방향(정규화): 조이스틱이 우선, 없으면 키보드. sendInput이 보내는 값과 같고, 돌진 조준 표시도 이 값을 씀 */
+function moveVec() {
   let mx = input.jx, my = input.jy;
   if (!mx && !my) {
     const k = input.keys; mx = (k.has('r') ? 1 : 0) - (k.has('l') ? 1 : 0); my = (k.has('d') ? 1 : 0) - (k.has('u') ? 1 : 0);
     const m = Math.hypot(mx, my); if (m) { mx /= m; my /= m; }
   }
+  return [mx, my];
+}
+function sendInput() {
+  const me = ME(); if (!me) return;
+  const [mx, my] = moveVec();
   const atk = input.atkTouch || input.atkKey;
   const sig = `${mx.toFixed(3)},${my.toFixed(3)},${atk ? 1 : 0}`;
   if (sig !== lastSent) { lastSent = sig; session.send({ type: 'input', id: session.myId, mx, my, atk }); }
 }
-function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence && !(k === 'e' && spinLocked(me)) && !isLockedSkill(me.key, k)) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중·심판 잠금 중(E)·준비 중 스킬에는 보내지 않음
-function levelUp(k) { const me = ME(); if (me && !isLockedSkill(me.key, k)) session.send({ type: 'levelup', id: me.id, skill: k }); }
+/* aimed: 스킬 버튼을 끌어서 조준했을 때만 true. 아트록스 E에서만 의미가 있음(돌진 방향 = ang). 탭이면 보내지 않음 → 코어가 조이스틱·바라보는 방향을 씀 */
+function castSkill(k, ang, aimed) {
+  const me = ME(); if (!me || phase !== 'play' || me.silence || (k === 'e' && spinLocked(me))) return;   // 침묵 중·심판 잠금 중(E)에는 보내지 않음
+  const cmd = { type: 'cast', id: me.id, skill: k, ang };
+  if (aimed && k === 'e') cmd.aimed = true;
+  session.send(cmd);
+}
+function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', id: me.id, skill: k }); }
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
 
@@ -140,8 +163,11 @@ function refreshPanel() {
   $('#spName').textContent = CHAMPS[me.key].name + ' 스탯';
   set('lv', String(me.level));
   const sh = Core.shieldOf(me);
-  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}${sh > 0 ? ` · 보호막 ${fmt(sh, 0)}` : ''}`);
-  set('regen', `${fmt(s.regen, 2)} /5초`);
+  // 아트록스 R 중에는 체력 줄 아래 '피의 샘' 남은 시간(체력바 아래 타이머와 같은 값, 지속 시간이 늘면 그만큼 늘어남)
+  const blood = me.key === 'aatrox' && me.ar ? ` · 피의 샘 ${fmt(Math.max(0, me.ar.dur - me.ar.t), 1)}초` : '';
+  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}${sh > 0 ? ` · 보호막 ${fmt(sh, 0)}` : ''}${blood}`);
+  const hm = Core.healMul(me), hmTxt = hm > 1 ? ` (회복 +${fmt((hm - 1) * 100, 0)}%)` : '';   // 세계의 종결자 회복 증가(모든 회복에 곱해짐)
+  set('regen', `${fmt(s.regen, 2)} /5초${hmTxt}`);
   const noMana = !(s.maxMana > 0);   // 마나가 없는 챔피언(가렌)
   set('mana', noMana ? '없음' : `${fmt(me.mana, 0)} / ${fmt(s.maxMana, 0)}`);
   set('mregen', noMana ? '없음' : `${fmt(s.manaRegen, 2)} /5초`);
@@ -154,9 +180,10 @@ function refreshPanel() {
   const ten = Core.tenacityOf(me), tenOn = ten > 0;
   $('#sp_ten').hidden = !tenOn; $('#sp_ten').previousElementSibling.hidden = !tenOn;
   if (tenOn) set('ten', `${fmt(ten * 100, 0)}%`);
-  const om = Core.omnivampOf(me), omOn = om > 0;   // 모든 피해 흡혈(아이템 등): 0보다 클 때만 줄을 보임
+  // 모든 피해 흡혈: 아이템 등으로 0보다 크면 줄을 보임. 아트록스 E를 배웠으면 챔피언 대상 흡혈(E 패시브)도 괄호로 보임
+  const om = Core.omnivampOf(me), eOn = me.key === 'aatrox' && me.sk.e > 0, omOn = om > 0 || eOn;
   $('#sp_omni').hidden = !omOn; $('#sp_omni').previousElementSibling.hidden = !omOn;
-  if (omOn) set('omni', `${+(om * 100).toFixed(1)}%`);
+  if (omOn) set('omni', `${+(om * 100).toFixed(1)}%` + (eOn ? ` (챔피언 대상 +${+(Core.aatroxEOmni(me) * 100).toFixed(2)}%)` : ''));
   const rb = (me.wBuff ? SK.w.rangeBonus : 0) + (me.key === 'aatrox' && me.apCd <= 0 ? Core.AATROX_PASSIVE.range : 0);   // 평타 사거리 보너스: 다리우스 W, 아트록스 사신 태세 준비(+50)
   set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', rb ? `${s.range + rb} 유닛 (+${rb})` : `${s.range} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
 }
@@ -263,7 +290,7 @@ for (const k of SKILL_KEYS) {
   skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), stg: w.querySelector('.stg'), dots: [], cdT: null, s: {} };
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
-    const me = ME(); if (!me || me.dead || me.silence || (k === 'e' && spinLocked(me)) || isLockedSkill(me.key, k)) return;   // 침묵 중·심판 잠금 중·준비 중 스킬에는 눌러도 아무 일도 없음(조준 표시도 안 함)
+    const me = ME(); if (!me || me.dead || me.silence || (k === 'e' && spinLocked(me))) return;   // 침묵 중·심판 잠금 중에는 눌러도 아무 일도 없음(조준 표시도 안 함)
     held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
     b.setPointerCapture(e.pointerId); e.preventDefault();
   });
@@ -276,7 +303,7 @@ for (const k of SKILL_KEYS) {
   const up = (e, cancel) => {
     const h = held[k]; if (!h || h.id !== e.pointerId) return;
     delete held[k];
-    if (!cancel && !overCancel(e.clientX, e.clientY)) castSkill(k, h.dragged ? h.ang : autoAng(k === 'e'));
+    if (!cancel && !overCancel(e.clientX, e.clientY)) castSkill(k, h.dragged ? h.ang : autoAng(k === 'e'), h.dragged);
   };
   b.addEventListener('pointerup', e => up(e, false)); b.addEventListener('pointercancel', e => up(e, true));
   b.addEventListener('contextmenu', e => e.preventDefault());
@@ -302,16 +329,15 @@ const ICON = {
     e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 8.4A7.4 7.4 0 1 0 19.4 13.2"/><path d="M19.6 4.6v4.2h-4.2"/><path d="M12 7.2v8.2M10 15.4h4"/></svg>',
     r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.8v2.4"/><path d="M6.4 8.6h11.2"/><path d="M12 8.6v1.4"/><path d="M9.2 10h5.6l-2.8 12.2z" fill="currentColor" fill-opacity=".25"/></svg>'
   },
-  aatrox: {   // Q 다르킨의 검: 큰 다르킨 대검(가시 날·긴 검날·손잡이) · W·E·R는 준비 중이라 흐린 임시 모양
+  aatrox: {   // Q 다르킨의 검: 큰 다르킨 대검(가시 날·긴 검날·손잡이) · W 지옥사슬: 이어진 사슬 고리 · E 파멸의 돌진: 칼날과 돌진 줄무늬 · R 세계의 종결자: 악마 날개와 뿔
     q: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 12.4 8.7 4.6l1-1.4 1.9 2.2 1.4-2.8L14.4 5l1.9-2.2 1 1.4-.7 7.8z" fill="currentColor" fill-opacity=".32"/><path d="M12 1.8v10.9M9.6 7.4 12 9.2l2.4-1.8"/><path d="M3.5 15.4 6.6 14l2 1.1L12 13.7l3.4 1.4 2-1.1 3.1 1.4-2.3 1.9H5.8z" fill="currentColor" fill-opacity=".5"/><path d="M12 17v3.9"/><circle cx="12" cy="22" r="1.4" fill="currentColor"/></svg>',
-    w: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 7-7 11-6"/><path d="M14 9l5-3M14 9l3 5"/></svg>',
-    e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7a5 5 0 1 0 5 5"/></svg>',
-    r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19 7v10l-7 4.5L5 17V7z"/><path d="M9 11h6M9 14h6"/></svg>'
+    w: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.6" y="9.1" width="10.4" height="6.2" rx="3.1" transform="rotate(-38 7.8 12.2)"/><rect x="10.9" y="8.7" width="10.4" height="6.2" rx="3.1" transform="rotate(-38 16.1 11.8)" fill="currentColor" fill-opacity=".22"/></svg>',
+    e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12 15.2 9.4H7.4L5.8 12l1.6 2.6h7.8z" fill="currentColor" fill-opacity=".3"/><path d="M15.2 6.6v10.8"/><path d="M3 7.4h3.2M2.2 12h3.6M3 16.6h3.2"/></svg>',
+    r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.6 9.8C4.8 7.6 2.6 10.6 3.2 16.4c2.6-1 4.6-1.2 6.4-.6z" fill="currentColor" fill-opacity=".26"/><path d="M14.4 9.8c4.8-2.2 7-.2 6.4 6.6-2.6-1-4.6-1.2-6.4-.6z" fill="currentColor" fill-opacity=".26"/><path d="M8.6 6.2 6.8 2.8M15.4 6.2l1.8-3.4"/><circle cx="12" cy="8.6" r="2.6"/><path d="M9.6 14.2 12 21l2.4-6.8"/></svg>'
   }
 };
-/* 아트록스 Q: 재사용 창 고리(얇은 빨강, 창이 줄어듦) · 준비 중 스킬의 자물쇠 */
+/* 아트록스 Q: 재사용 창 고리(얇은 빨강, 창이 줄어듦) */
 const AQ_EXTRA = '<svg class="arng" viewBox="0 0 40 40" aria-hidden="true" hidden><circle class="rb" cx="20" cy="20" r="18"/><circle class="arf" cx="20" cy="20" r="18" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg>';
-const LOCK_ICON = '<svg class="lockI" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10.5" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/></svg>';
 /* 가렌 E 버튼이 회전 중일 때 바뀌는 모양: X(취소) + 진행 고리. 평소에는 숨김 */
 const GAREN_E_EXTRA = '<svg class="stop" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 7l10 10M17 7 7 17"/></svg>' +
   '<svg class="ring" viewBox="0 0 40 40" aria-hidden="true" hidden><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17" pathLength="100" stroke-dashoffset="100"/></svg>';
@@ -320,17 +346,16 @@ let skinKey = null;   // 지금 버튼에 그려진 챔피언
 function applySkin(key) {
   const def = Core.SKILLS[key];
   SKILL_KEYS.forEach((k, i) => {
-    const o = skW[k], locked = isLockedSkill(key, k);
-    const base = (k === 'r' ? '궁극기 · ' : `스킬 ${i + 1} · `) + def[k].name, label = locked && !base.includes('준비 중') ? base + ' · 준비 중' : base;
-    // 스킬별 덧붙임: 가렌 E 회전 취소 · 아트록스 Q 재사용 고리 · 준비 중 스킬 자물쇠
-    const extra = locked ? LOCK_ICON : (key === 'garen' && k === 'e' ? GAREN_E_EXTRA : (key === 'aatrox' && k === 'q' ? AQ_EXTRA : ''));
+    const o = skW[k], base = (k === 'r' ? '궁극기 · ' : `스킬 ${i + 1} · `) + def[k].name;
+    // 스킬별 덧붙임: 가렌 E 회전 취소 · 아트록스 Q 재사용 고리
+    const extra = key === 'garen' && k === 'e' ? GAREN_E_EXTRA : (key === 'aatrox' && k === 'q' ? AQ_EXTRA : '');
     o.b.innerHTML = ICON[key][k] + extra + '<span class="cdT"></span>';
     o.cdT = o.b.querySelector('.cdT'); o.icon = o.b.firstElementChild;
     o.stop = o.b.querySelector('.stop'); o.ring = o.b.querySelector('.ring'); o.rf = o.b.querySelector('.rf');
     o.arng = o.b.querySelector('.arng'); o.arf = o.b.querySelector('.arf');
-    o.base = label;
+    o.base = base;
     o.b.classList.toggle('aat', key === 'aatrox');   // 아트록스 스킬 버튼: 어두운 붉은 테두리
-    o.b.setAttribute('aria-label', label); o.up.setAttribute('aria-label', base + ' 레벨업');
+    o.b.setAttribute('aria-label', base); o.up.setAttribute('aria-label', base + ' 레벨업');
     o.dotBox.innerHTML = ''; o.dots = [];
     for (let n = 0; n < (k === 'r' ? 3 : def[k].max); n++)   // 궁극기 점은 3개(원래 명세 5/5/5/3), 지금은 1레벨까지만 찍힘
     { const d = document.createElement('i'); o.dotBox.appendChild(d); o.dots.push(d); }
@@ -352,9 +377,7 @@ function refreshSkills() {
     if (!on) continue;
     const lv = me.sk[k], max = Core.SKILLS[me.key][k].max, set = (name, v, fn) => { if (o.s[name] !== v) { o.s[name] = v; fn(v); } };
     set('lv', lv, v => { o.b.dataset.lv = v; o.dots.forEach((d, i) => d.classList.toggle('on', i < v)); });
-    const locked = isLockedSkill(me.key, k);   // 준비 중 스킬: 흐림 + 자물쇠, 레벨업 점 없음
-    set('locked', locked, v => o.b.classList.toggle('locked', v));
-    set('up', me.sp > 0 && lv < max && !me.dead && !locked, v => { o.up.hidden = !v; });
+    set('up', me.sp > 0 && lv < max && !me.dead, v => { o.up.hidden = !v; });
     // 아트록스 Q: 다음 단계(1·2·3) 배지. 재사용 창(3초)이 열려 있으면 얇은 빨간 고리가 줄어듦. 단계가 있으면 쿨타임 대신 이것을 보임 (A7)
     let aqStg = 0;
     if (me.key === 'aatrox' && k === 'q') {
@@ -458,7 +481,8 @@ window.Game = {
 /* =====================================================================
    코어 이벤트 → 화면 효과
    ===================================================================== */
-const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9, aqHit: 0.35 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
+const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9, aqHit: 0.35,
+  awFire: 0.3, awHit: 0.45, awPull: 0.4, awMiss: 0.35, aeDash: 0.4, arStart: 0.7 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초). awZone은 상태(c.awZone)로 그려서 수명 없이 무시
 /* 가렌 결정타 강화 평타 판별: 직전 프레임에 강화(gq)가 있었고 이번 프레임에 사라졌으면 그 평타가 강화 평타(클라이언트에서 추적) */
 const gqWas = new Map();
 function garenEmpowered() { return W().champs.some(c => c.key === 'garen' && gqWas.get(c.id) && !c.gq); }
@@ -567,7 +591,8 @@ function drawShredTag(x, y, sh) {
 /* 챔피언 체력바: 한 칸 = 체력 100. 아래에 칸 없는 얇은 마나바. 보호막은 체력 바로 뒤에 흰색으로 이어 붙임.
    체력+보호막이 최대 체력을 넘으면 막대 전체 기준을 체력+보호막으로 맞춤(막대 길이는 그대로, 칸이 좁아짐) */
 function drawChampBar(c, cx, bottomY) {
-  const SEG = 100, SW = 7, h = 9, MH = 4, maxHp = c.stats.maxHp, n = maxHp / SEG, w = n * SW, x0 = cx - w / 2 + 6, y0 = bottomY - h - MH - 2;
+  const blood = c.key === 'aatrox' && !!c.ar && !c.dead, BLOOD_H = 11, lift = blood ? BLOOD_H + 3 : 0;   // 세계의 종결자 중: 피의 샘 막대 자리만큼 체력바를 위로
+  const SEG = 100, SW = 7, h = 9, MH = 4, maxHp = c.stats.maxHp, n = maxHp / SEG, w = n * SW, x0 = cx - w / 2 + 6, y0 = bottomY - h - MH - 2 - lift;
   const sh = c.dead ? 0 : Core.shieldOf(c), scale = Math.max(maxHp, c.hp + sh), k = w / scale, seg = SEG * k;   // k: 체력 1당 픽셀, seg: 칸 하나 폭
   const fill = c.dead ? '#556' : (c.team === ME().team ? '#3fd07a' : '#e5484d'), back = c.team === ME().team ? '#1f3a2b' : '#3a1618';
   const hpX = c.hp * k, shX = (c.hp + sh) * k, segs = Math.ceil(scale / SEG);
@@ -592,6 +617,17 @@ function drawChampBar(c, cx, bottomY) {
     ctx.fillStyle = '#12284a'; ctx.fillRect(x0, my, w, MH);
     ctx.fillStyle = '#3d9bff'; ctx.fillRect(x0, my, w * Math.max(0, Math.min(1, c.mana / c.stats.maxMana)), MH);
     ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x0, my, w, 1);
+  }
+  if (blood) {   // 피의 샘: 체력 수치 밑의 타이머(모두에게). 남은 시간 막대 · 기준은 지속 시간(ar.dur, 처치로 늘면 같이 늘어남)
+    const by = y0 + h + 3, rem = Math.max(0, c.ar.dur - c.ar.t), frac = clamp01(rem / c.ar.dur), label = `피의 샘 ${fmt(rem, 1)}초`;
+    ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, by - 1.5, w + 3, BLOOD_H + 3, 2); ctx.fill();
+    ctx.fillStyle = '#2a0408'; ctx.fillRect(x0, by, w, BLOOD_H);
+    const fg = ctx.createLinearGradient(x0, 0, x0 + w, 0); fg.addColorStop(0, '#5e0a14'); fg.addColorStop(1, '#d4182f');
+    ctx.fillStyle = fg; ctx.fillRect(x0, by, w * frac, BLOOD_H);
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x0, by, w * frac, 1);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `700 8.5px ${FONT}`;
+    ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, x0 + w / 2, by + BLOOD_H / 2 + 0.5);
+    ctx.fillStyle = '#ffd6da'; ctx.fillText(label, x0 + w / 2, by + BLOOD_H / 2 + 0.5);
   }
   drawLevelBadge(x0 - 4, y0 + h / 2, c.level);
 }
@@ -684,7 +720,7 @@ function drawSelfInfo(me) {
 }
 function drawChamp(c) {
   const [x, y] = P2(c);
-  const img = imgs[c.key], sh = SPRITE_H[c.key], sw = sh * img.width / img.height, ax = SPRITE_AX[c.key];
+  const img = c.key === 'aatrox' && c.ar ? imgs.aatrox_r : imgs[c.key], sh = spriteH(c), sw = sh * img.width / img.height, ax = spriteAx(c);   // 세계의 종결자 중에는 날개 모습
   const pp = prevPos.get(c.id), vx = pp ? x - pp.x : 0, vy = pp ? y - pp.y : 0;
   prevPos.set(c.id, { x, y });
   ctx.fillStyle = 'rgba(0,0,0,.38)'; ctx.beginPath(); ctx.ellipse(x, y, sw * 0.30, 5.5, 0, 0, 7); ctx.fill();
@@ -695,7 +731,8 @@ function drawChamp(c) {
   const lift = liftOf(c), pose = c.aq ? aqPose(c) : null;
   if (!c.dead) drawAuraBack(c, x, y, sw, sh, lift, vx, vy);
   if (c.key === 'garen' && !c.dead) drawGarenBack(c, x, y, sw, sh, lift, vx, vy);
-  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0) aatroxReadyBack(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 붉은 기운(뒤)
+  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0 && !c.ar) aatroxReadyBack(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 붉은 기운(뒤). R 중에는 날개 모습이라 생략
+  if (c.key === 'aatrox' && !c.dead && c.ar) drawBloodAuraBack(x, y, sw, sh, lift);   // 세계의 종결자 아우라(뒤)
   const bob = c.moving && !c.dead ? Math.abs(Math.sin(clockT * 11)) * 1.6 : 0;
   const lg = Math.sin(c.lunge * Math.PI) * 4, fw = pose ? pose.fwd : 0;   // fw: Q 시전 중 앞으로 한 걸음(조준 방향)
   ctx.save();
@@ -709,7 +746,8 @@ function drawChamp(c) {
   ctx.drawImage(img, -ax * sw, -sh, sw, sh);
   ctx.restore();
   if (!c.dead) drawAuraFront(c, x, y, sw, sh, lift);
-  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0) aatroxReadyFront(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 불티(앞)
+  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0 && !c.ar) aatroxReadyFront(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 불티(앞)
+  if (c.key === 'aatrox' && !c.dead && c.ar) drawBloodAuraFront(x, y, sw, sh, lift);   // 세계의 종결자 불씨(앞)
   if (c.key === 'garen' && !c.dead) drawGarenFront(c, x, y, sw, sh, lift);
   if (c.wBuff && !c.dead) {   // 스킬 2: 주황색으로 반짝이는 이펙트
     for (let i = 0; i < 6; i++) {
@@ -1053,14 +1091,231 @@ function detectAatroxProcs(w) {
     }
     if (!t) continue;
     const [x, y] = P2(t);
-    fxList.push({ fx: 'procBurst', x, y: y - (t.kind === 'dummy' ? 34 : SPRITE_H[t.key] * 0.5), rot: 0.3, t: 0, life: 0.55 });
+    fxList.push({ fx: 'procBurst', x, y: y - (t.kind === 'dummy' ? 34 : spriteH(t) * 0.5), rot: 0.3, t: 0, life: 0.55 });
   }
 }
 
+/* ---------- 아트록스 W·E·R 효과 (DESIGN_AATROX §3, 2부). 모두에게 보임. 조준 표시만 나에게 ---------- */
+const CHAIN_H = 12;                      // 사슬이 떠 있는 높이(px, 손 높이쯤)
+const AR_FEAR = 600;                     // 세계의 종결자 공포 범위 반지름(유닛). 화면 표시용(규칙은 코어에 없음)
+const DASH_GHOSTS = [[0.25, 0.42], [0.5, 0.28], [0.75, 0.16]];   // 돌진 잔상: 시작에서 현재까지의 위치 비율과 투명도
+/* 사슬 한 줄: 어두운 금속 몸통 + 얇은 밝은 모서리 + 일정 간격의 고리(타원, 번갈아 누움). a = 투명도, glow = 빛 색(없으면 빛 없음) */
+function drawChain(x0, y0, x1, y1, a, glow) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+  if (L < 1 || a <= 0.005) return;
+  const ang = Math.atan2(dy, dx), n = Math.max(1, Math.floor(L / 6));
+  ctx.save(); ctx.globalAlpha = a; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+  ctx.lineWidth = 3.2; ctx.strokeStyle = '#161a21';
+  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 9; }
+  ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.lineWidth = 0.9; ctx.strokeStyle = '#9aa6b5'; ctx.beginPath(); ctx.moveTo(x0, y0 - 0.6); ctx.lineTo(x1, y1 - 0.6); ctx.stroke();
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, rot = ang + (i % 2 ? Math.PI / 2 : 0), cx = x0 + dx * u, cy = y0 + dy * u;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 3.2, 1.6, rot, 0, 7);
+    ctx.lineWidth = 1.1; ctx.strokeStyle = '#5d6877'; ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawGlowHead(x, y, r, a) {   // 사슬 끝: 주황 빛 + 붉은 마름모 촉
+  ctx.save(); ctx.globalAlpha = a;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+  g.addColorStop(0, 'rgba(255,205,120,.95)'); g.addColorStop(0.35, 'rgba(255,105,40,.7)'); g.addColorStop(1, 'rgba(200,30,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.7, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.7, y); ctx.closePath();
+  ctx.fillStyle = '#ff7a2e'; ctx.fill(); ctx.lineWidth = 1.1; ctx.strokeStyle = '#4a0808'; ctx.stroke();
+  ctx.restore();
+}
+/* 날아가는 사슬(W 비행 중): 아트록스에서 머리까지 사슬, 머리는 주황 빛 */
+function drawAwChain(c) {
+  const P = c.aw, hx = P.x + Math.cos(P.ang) * P.dist, hy = P.y + Math.sin(P.ang) * P.dist;
+  drawChain(P.x, P.y - CHAIN_H, hx, hy - CHAIN_H, 1, 'rgba(255,90,40,.85)');
+  drawGlowHead(hx, hy - CHAIN_H, 4.2, 1);
+}
+/* 충격 지대(1.5초, 모두에게): 검붉은 반투명 사다리꼴, 밝은 붉은 테두리. 시간이 갈수록 테두리가 밝아지고 맥동이 빨라짐 */
+function drawAwZone(c) {
+  const Z = c.awZone, pts = Core.aatroxWZone(Z.x, Z.y, Z.ang), g = clamp01(Z.t / AW.zoneT);
+  const pulse = 0.5 + 0.5 * Math.sin(2 * Math.PI * (1.4 * Z.t + Z.t * Z.t));   // 주파수가 1.4Hz에서 4.4Hz로 올라감
+  ctx.save();
+  ctx.beginPath(); pts.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath();
+  ctx.fillStyle = `rgba(105,4,16,${(0.3 + 0.14 * g).toFixed(3)})`; ctx.fill();
+  ctx.shadowColor = 'rgba(255,40,40,.9)'; ctx.shadowBlur = 5 + 9 * g;
+  ctx.lineWidth = 2.2; ctx.strokeStyle = `rgba(232,44,44,${(0.42 + 0.3 * g + 0.25 * pulse * (0.4 + g)).toFixed(3)})`; ctx.stroke();
+  ctx.shadowBlur = 0; ctx.lineWidth = 0.9; ctx.strokeStyle = `rgba(255,150,130,${(0.2 + 0.55 * g * pulse).toFixed(3)})`; ctx.stroke();
+  ctx.restore();
+}
+/* 충격 지대 중심과 대상을 잇는 사슬(모두에게). 1.5초 동안 대상이 지대 안에 있는지 보여 줌 */
+function drawAwTether(c) {
+  const Z = c.awZone, t = Core.unitOf(W(), Z.targetId); if (!t || t.dead) return;
+  const [tx, ty] = P2(t);
+  drawChain(Z.x, Z.y - CHAIN_H, tx, ty - 16, 0.9, 'rgba(255,70,40,.6)');
+}
+/* 지옥사슬 끌어당김(모두에게, 0.25초): 지대 중심에서 대상까지 팽팽한 사슬이 대상을 끌어당김. 가까워질수록 짧아짐 */
+function drawAwPullChain(u) {
+  const Pl = u.pull, [ux, uy] = P2(u);
+  drawChain(Pl.tx, Pl.ty - CHAIN_H, ux, uy - (u.kind === 'dummy' ? 26 : 16), 1, 'rgba(255,120,50,.9)');
+}
+/* 첫 적중(주황 섬광 → 검붉은 고리 → 불꽃 튀김). 0.45초 */
+function drawAwHit(f, p) {
+  const q = 1 - (1 - p) * (1 - p), R = 6 + 26 * q;
+  ctx.translate(f.x, f.y - 18);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+  g.addColorStop(0, 'rgba(255,250,220,.95)'); g.addColorStop(0.3, 'rgba(255,160,60,.9)'); g.addColorStop(0.65, 'rgba(210,60,20,.55)'); g.addColorStop(1, 'rgba(90,0,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.lineWidth = 3.4 * (1 - p) + 0.8; ctx.strokeStyle = 'rgba(120,10,10,.95)'; ctx.beginPath(); ctx.arc(0, 0, R * 1.05, 0, 7); ctx.stroke();
+  ctx.lineWidth = 1.8; ctx.strokeStyle = 'rgba(255,140,50,.95)'; ctx.beginPath(); ctx.arc(0, 0, R * 0.7, 0, 7); ctx.stroke();
+  ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+  for (let i = 0; i < 10; i++) {   // 불꽃: 바깥으로 튀는 짧은 선, 주황과 진홍을 번갈아
+    const a = i * Math.PI * 2 / 10 + 0.3, r0 = R * 0.6, r1 = R * (1.15 + 0.35 * (((i * 37) % 7) / 7));
+    ctx.strokeStyle = i % 2 ? 'rgba(255,200,90,.95)' : 'rgba(255,90,40,.9)';
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke();
+  }
+}
+/* 시전 시작(지면 내리침, 모두에게): 발밑에 주황 고리와 검붉은 금이 퍼짐 */
+function drawAwFire(f, p) {
+  const R = 8 + 20 * (1 - (1 - p) * (1 - p));
+  ctx.translate(f.x, f.y);
+  ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,120,55,.95)'; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.4, R * 0.55, 0, 0, 7); ctx.stroke();
+  ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(120,10,20,.95)'; ctx.beginPath(); ctx.ellipse(0, 0, R, R * 0.4, 0, 0, 7); ctx.stroke();
+  ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const a = f.ang + (i - 2) * 0.32, r1 = R * (0.9 + 0.2 * (i % 2));
+    ctx.strokeStyle = i % 2 ? 'rgba(255,140,60,.95)' : 'rgba(140,12,22,.95)';
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * 4, Math.sin(a) * 2); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1 * 0.5); ctx.stroke();
+  }
+}
+/* 사거리 끝까지 맞은 대상이 없음(모두에게): 사슬이 끝에서 흐려지며 사라짐. 시작점은 끝에서 사거리만큼 뒤 */
+function drawAwMiss(f, p) {
+  const L = px(AW.range), sx = f.x - Math.cos(f.ang) * L, sy = f.y - Math.sin(f.ang) * L, fa = 1 - p;
+  drawChain(sx, sy - CHAIN_H, f.x, f.y - CHAIN_H, fa, null);
+  drawGlowHead(f.x, f.y - CHAIN_H, 4.2 * (0.6 + 0.4 * fa), fa);
+}
+/* 끌어당김이 중심에 닿음(모두에게): 주황 섬광 한 번 */
+function drawAwPullFlash(f, p) {
+  const R = 6 + 30 * (1 - (1 - p) * (1 - p));
+  ctx.translate(f.x, f.y - 8);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+  g.addColorStop(0, 'rgba(255,240,200,.95)'); g.addColorStop(0.4, 'rgba(255,130,50,.7)'); g.addColorStop(1, 'rgba(160,20,10,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.lineWidth = 3 * (1 - p) + 0.8; ctx.strokeStyle = 'rgba(255,150,70,.95)'; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.1, R * 0.5, 0, 0, 7); ctx.stroke();
+}
+/* 검붉은 잔상 한 장: 스프라이트를 짙은 붉은색으로 물들여 투명하게 그림 (key = 'aatrox' 또는 'aatrox_r') */
+function drawGhost(key, sh, ax, gx, gy, a, flip) {
+  if (a <= 0.005) return;
+  const img = tintedSprite(key), sw = sh * img.width / img.height;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(gx, gy); if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(img, -ax * sw, -sh, sw, sh); ctx.restore();
+}
+/* 돌진 중(모두에게): 몸 뒤로 검붉은 잔상 3장과 붉은 띠. 시작점에서 지금 위치까지 */
+function drawEDashGhosts(c) {
+  const D = c.dash, [x, y] = P2(c), key = c.ar ? 'aatrox_r' : 'aatrox', sh = spriteH(c), ax = spriteAx(c), flip = c.facing < 0;
+  ctx.save(); ctx.lineCap = 'round';
+  const g = ctx.createLinearGradient(D.x0, D.y0, x, y);
+  g.addColorStop(0, 'rgba(120,0,18,0)'); g.addColorStop(1, 'rgba(230,40,50,.8)');
+  ctx.strokeStyle = g; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(D.x0, D.y0 - 26); ctx.lineTo(x, y - 26); ctx.stroke();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,170,160,.7)'; ctx.beginPath(); ctx.moveTo(D.x0, D.y0 - 26); ctx.lineTo(x, y - 26); ctx.stroke();
+  ctx.restore();
+  for (const [f, a] of DASH_GHOSTS) drawGhost(key, sh, ax, D.x0 + (x - D.x0) * f, D.y0 + (y - D.y0) * f, a, flip);
+}
+/* 돌진이 끝남(aeDash, 모두에게): 지나간 자리의 잔상이 흐려지며 남고, 끝에서 검붉은 먼지가 퍼짐 */
+function drawEDashEnd(f, p) {
+  const u = Core.champOf(W(), f.owner), R = !!(u && u.ar), key = R ? 'aatrox_r' : 'aatrox';
+  const sh = R ? SPRITE_H_R : SPRITE_H.aatrox, ax = R ? SPRITE_AX_R : SPRITE_AX.aatrox, flip = !!(u && u.facing < 0);
+  const dx = f.x1 - f.x0, dy = f.y1 - f.y0, fa = 1 - p;
+  for (const [s, a] of DASH_GHOSTS) drawGhost(key, sh, ax, f.x0 + dx * s, f.y0 + dy * s, a * fa, flip);
+  ctx.save(); ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(150,10,22,.55)'; ctx.lineWidth = 7 * fa + 1; ctx.beginPath(); ctx.moveTo(f.x0, f.y0 - 26); ctx.lineTo(f.x1, f.y1 - 26); ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  for (let i = 0; i < 8; i++) {   // 끝 퍼프: 바닥에서 흩어지는 검붉은 먼지
+    const a = i * Math.PI / 4 + 0.4, r = 4 + 20 * p * (0.6 + 0.4 * (((i * 37) % 5) / 5));
+    ctx.fillStyle = `rgba(110,8,20,${(0.5 * fa).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(f.x1 + Math.cos(a) * r, f.y1 - 6 + Math.sin(a) * r * 0.5, 2.4 * fa + 1.2, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+/* 세계의 종결자 발동(arStart, 모두에게): 검붉은 충격파가 반지름 600까지 퍼짐 */
+function drawArWave(u, p) {
+  const [x, y] = P2(u), e = 1 - (1 - p) * (1 - p) * (1 - p), R = Math.max(1, px(AR_FEAR) * e);
+  const g = ctx.createRadialGradient(x, y, R * 0.55, x, y, R);
+  g.addColorStop(0, 'rgba(150,10,25,0)'); g.addColorStop(0.9, 'rgba(150,10,25,.22)'); g.addColorStop(1, 'rgba(190,20,35,.35)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+  ctx.lineWidth = 6 * (1 - p) + 1.2; ctx.strokeStyle = 'rgba(205,28,42,.95)'; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.stroke();
+  ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(40,0,8,.9)'; ctx.beginPath(); ctx.arc(x, y, R * 0.96, 0, 7); ctx.stroke();
+}
+/* 세계의 종결자 발동 순간 화면이 잠깐 검붉게 물듦(arStart 0.4초, 모두에게). 월드 그림이 다 끝난 뒤 맨 위에 덮음 */
+function drawScreenTint() {
+  let a = 0;
+  for (const f of fxList) if (f.fx === 'arStart') a = Math.max(a, 0.22 * (1 - f.t / 0.4));
+  if (a <= 0.005) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = `rgba(120,0,15,${a.toFixed(3)})`; ctx.fillRect(0, 0, cv.width, cv.height);
+}
+/* 세계의 종결자 아우라(모두에게): 뒤쪽은 검붉은 빛과 검은 중심, 발밑 맥동 고리. 앞쪽은 검붉은 불씨가 위로 올라감 */
+function drawBloodAuraBack(x, y, sw, sh, lift) {
+  const cy = y - lift - sh * 0.5, pu = 1 + 0.07 * Math.sin(clockT * 5);
+  auraGlow(x, cy, sh * 0.95 * pu, 0.7, '140,8,22', 0.55);
+  auraGlow(x, cy, sh * 0.55 * pu, 0.8, '20,0,4', 0.6);
+  ctx.save(); ctx.lineWidth = 2.4; ctx.strokeStyle = `rgba(190,20,35,${(0.45 + 0.3 * Math.sin(clockT * 5)).toFixed(3)})`;
+  ctx.beginPath(); ctx.ellipse(x, y, sw * 0.9 * pu, 9 * pu, 0, 0, 7); ctx.stroke();
+  ctx.restore();
+}
+function drawBloodAuraFront(x, y, sw, sh, lift) {
+  for (let i = 0; i < 9; i++) {
+    const ph = (clockT * 0.5 + i / 9) % 1, qx = x + Math.sin(i * 2.7 + clockT * 2.2) * sw * 0.42, qy = y - lift - ph * sh * 1.05;
+    ctx.fillStyle = `rgba(255,${50 + (i % 3) * 25},${50 + (i % 2) * 20},${(0.85 * Math.sin(ph * Math.PI)).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(qx, qy, 1.1 + (1 - ph) * 1.4, 0, 7); ctx.fill();
+  }
+}
+/* 조준 표시(나에게만). 지옥사슬: 사거리 825 × 폭 160 직사각형(끝은 평평) + 끝 쪽 충격 지대 미리보기(흐리게) */
+function drawAwAim(x, y, ang, cancel) {
+  const L = AW.range, hw = AW.width / 2;
+  const rect = [aqXY(x, y, ang, 0, -hw), aqXY(x, y, ang, L, -hw), aqXY(x, y, ang, L, hw), aqXY(x, y, ang, 0, hw)];
+  ctx.save();
+  ctx.beginPath(); rect.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath();
+  ctx.fillStyle = cancel ? 'rgba(255,60,70,.10)' : 'rgba(120,215,255,.10)'; ctx.fill();
+  if (cancel) ctx.setLineDash([6, 5]);
+  ctx.lineWidth = 2.2; ctx.strokeStyle = cancel ? 'rgba(255,90,100,.9)' : 'rgba(120,215,255,.95)'; ctx.stroke();
+  ctx.setLineDash([]);
+  const [cx, cy] = aqXY(x, y, ang, L, 0), Z = Core.aatroxWZone(cx, cy, ang);
+  ctx.beginPath(); Z.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath();
+  ctx.fillStyle = 'rgba(150,12,24,.12)'; ctx.fill();
+  ctx.setLineDash([4, 4]); ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(255,90,90,.42)'; ctx.stroke();
+  ctx.restore();
+}
+/* 파멸의 돌진 조준(나에게만): 돌진 거리 300 화살표와 몸 폭의 띠 */
+function drawAeAim(x, y, ang, cancel) {
+  const L = AE.dist, hb = HIT_R, col =cancel ? 'rgba(255,90,100,.95)' : 'rgba(120,215,255,.95)';
+  const band = [aqXY(x, y, ang, 0, -hb), aqXY(x, y, ang, L, -hb), aqXY(x, y, ang, L, hb), aqXY(x, y, ang, 0, hb)];
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); band.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath();
+  ctx.fillStyle = cancel ? 'rgba(255,60,70,.09)' : 'rgba(120,215,255,.09)'; ctx.fill();
+  ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  const [ex, ey] = aqXY(x, y, ang, L, 0), cs = Math.cos(ang), sn = Math.sin(ang), bx = ex - cs * 12, by = ey - sn * 12;   // 화살촉 크기는 화면(맵) 픽셀로 직접(12·7)
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(bx, by); ctx.lineWidth = 2.6; ctx.strokeStyle = col; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(bx - sn * 7, by + cs * 7); ctx.lineTo(bx + sn * 7, by - cs * 7); ctx.closePath();
+  ctx.fillStyle = col; ctx.fill();
+  ctx.restore();
+}
+/* 세계의 종결자 조준(나에게만, 즉시 시전): 공포 범위 반지름 600 고리(표시용) */
+function drawArAim(x, y, cancel) {
+  ctx.save(); ctx.setLineDash([7, 5]); ctx.lineWidth = 2; ctx.strokeStyle = cancel ? 'rgba(255,90,100,.9)' : 'rgba(120,215,255,.85)';
+  ctx.beginPath(); ctx.arc(x, y, px(AR_FEAR), 0, 7); ctx.fillStyle = 'rgba(120,215,255,.06)'; ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
 /* 스킬 범위 표시 */
 function aimInfo(me) {   // 길게 누르는 중인 스킬의 예상 범위
-  for (const k in held) if (held[k].show && me.sk[k] > 0) return { k, ang: held[k].dragged ? held[k].ang : autoAng(k === 'e'), cancel: held[k].cancel };
+  for (const k in held) {
+    const h = held[k]; if (!h.show || !(me.sk[k] > 0)) continue;
+    let ang = h.dragged ? h.ang : autoAng(k === 'e');
+    if (me.key === 'aatrox' && k === 'e' && !h.dragged) ang = aatroxEDir(me);   // 돌진: 탭과 같은 방향(코어가 쓰는 방향)
+    return { k, ang, cancel: h.cancel };
+  }
   return null;
+}
+/* 아트록스 돌진 방향(탭 기준, 코어 aatroxDashDir와 같은 순서): 조이스틱·키보드로 움직이는 중이면 그 방향, 아니면 마지막으로 움직인 방향(faceAng) */
+function aatroxEDir(me) {
+  const [mx, my] = moveVec();
+  return mx || my ? Math.atan2(my, mx) : me.faceAng;
 }
 function drawSkillWorld(me) {
   const Ro = px(HIT_R + SK.q.rOut), Ri = px(HIT_R + SK.q.rIn);
@@ -1101,8 +1356,11 @@ function drawSkillWorld(me) {
     } else {
       ctx.beginPath(); ctx.ellipse(x, y, px(HIT_R) + 5, px(HIT_R) * 0.5 + 2.5, 0, 0, 7); ctx.fill(); ctx.stroke();
     }
-  } else if (me.key === 'aatrox') {   // 아트록스: Q만 조준(W·E·R은 준비 중이라 조준 없음). 지금 단계의 도형
+  } else if (me.key === 'aatrox') {   // 아트록스: Q 지금 단계의 도형 · W 사슬 직사각형 · E 돌진 화살표 · R 공포 범위 고리
     if (a.k === 'q') drawAqAim(me, x, y, a.ang, a.cancel);
+    else if (a.k === 'w') drawAwAim(x, y, a.ang, a.cancel);
+    else if (a.k === 'e') drawAeAim(x, y, a.ang, a.cancel);
+    else if (a.k === 'r') drawArAim(x, y, a.cancel);
   } else if (a.k === 'q') {   // 안쪽 = 도끼 자루, 바깥 띠 = 도끼날
     ctx.beginPath(); ctx.arc(x, y, Ro, 0, 7); ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(120,215,255,.18)'; ctx.beginPath(); ctx.arc(x, y, Ri, 0, 7); ctx.fill(); ctx.stroke();
@@ -1255,6 +1513,18 @@ function drawFx() {
       ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(40,0,6,.7)'; ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
       ctx.lineWidth = 7; ctx.strokeStyle = '#b3121f'; ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
       ctx.lineWidth = 2; ctx.strokeStyle = '#ff7a6a'; ctx.beginPath(); ctx.arc(0, 0, R - 1, a0 + sw * 0.3, a0 + sw); ctx.stroke();
+    } else if (f.fx === 'awFire') {  // 아트록스 W 시전: 지면 내리침
+      drawAwFire(f, p);
+    } else if (f.fx === 'awHit') {   // 지옥사슬 첫 적중: 주황 섬광 · 검붉은 고리 · 불꽃
+      drawAwHit(f, p);
+    } else if (f.fx === 'awPull') {  // 끌어당김이 중심에 닿음: 주황 섬광
+      drawAwPullFlash(f, p);
+    } else if (f.fx === 'awMiss') {  // 사거리 끝까지 맞은 대상 없음: 사슬이 흐려지며 사라짐
+      drawAwMiss(f, p);
+    } else if (f.fx === 'aeDash') {  // 돌진 끝: 잔상이 남고 끝에서 먼지 퍼프
+      drawEDashEnd(f, p);
+    } else if (f.fx === 'arStart') { // 세계의 종결자 발동: 검붉은 충격파(화면 물듦은 drawScreenTint)
+      const u = Core.champOf(W(), f.owner); if (u) drawArWave(u, p);
     } else if (f.fx === 'aqHit') {   // 아트록스 Q 판정: 단계별 붉은·주황 효과
       drawAqHit(f, p);
     } else if (f.fx === 'procBurst') {   // 사신 태세 적중: 대상 위 큰 진홍 폭발
@@ -1287,6 +1557,7 @@ function drawFx() {
   }
   for (const u of W().champs.concat(W().dummies)) {   // 끌려오는 동안의 사슬
     if (!u.pull) continue;
+    if (u.pull.noAir) { drawAwPullChain(u); continue; }   // 아트록스 지옥사슬 끌어당김: 충격 지대 중심에서 팽팽한 사슬(모두에게 보이므로 drawFx가 아니라 여기서)
     const src = Core.champOf(W(), u.pull.src); if (!src) continue;
     const [sx, sy] = P2(src), [ux, uy] = P2(u);
     ctx.save(); ctx.strokeStyle = 'rgba(210,190,150,.95)'; ctx.lineWidth = 2.4; ctx.setLineDash([5, 3]);
@@ -1306,7 +1577,7 @@ function drawTurretWarning(t, now) {
     ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.lineWidth = 3.2; ctx.strokeStyle = '#ff5560'; ctx.stroke();
     ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2; ctx.strokeStyle = `rgba(255,90,90,${0.3 + 0.35 * pulse})`;
     ctx.beginPath(); ctx.moveTo(t.x, t.y - 60); ctx.lineTo(x, y - 20); ctx.stroke(); ctx.setLineDash([]);
-    const wy = y - SPRITE_H[tgt.key] - 36;
+    const wy = y - spriteH(tgt) - 36;
     ctx.beginPath(); ctx.moveTo(x, wy - 11); ctx.lineTo(x + 11, wy + 8); ctx.lineTo(x - 11, wy + 8); ctx.closePath();
     ctx.fillStyle = `rgba(255,70,80,${0.75 + 0.25 * pulse})`; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.font = `700 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, wy + 2.5);
@@ -1372,17 +1643,20 @@ function render(now) {
 
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinGround(c);   // 심판 범위 원(챔피언보다 먼저: 바닥 효과)
   for (const c of w.champs) if (c.aq && !c.dead) drawAqTele(c);            // 아트록스 Q 예고(모두에게 보임, 챔피언 아래)
+  for (const c of w.champs) if (c.awZone) drawAwZone(c);                    // 아트록스 W 충격 지대(바닥, 챔피언 아래)
   for (const d of w.dummies) drawBleedOrbs(d, false);
   for (const d of w.dummies) drawDummy(d);
   for (const d of w.dummies) drawBleedOrbs(d, true);
-  for (const c of w.champs) { if (c.yq) continue; drawBleedOrbs(c, false); drawChamp(c); drawBleedOrbs(c, true); }   // 일격필살 중에는 안 보임(모두에게)
+  for (const c of w.champs) { if (c.yq) continue; drawBleedOrbs(c, false); if (c.dash && !c.dead) drawEDashGhosts(c); drawChamp(c); drawBleedOrbs(c, true); }   // 일격필살 중에는 안 보임(모두에게). 돌진 잔상은 몸 뒤
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinBlade(c);   // 심판 칼날(챔피언 앞)
+  for (const c of w.champs) if (c.aw) drawAwChain(c);                       // 아트록스 W 날아가는 사슬(챔피언 위)
+  for (const c of w.champs) if (c.awZone) drawAwTether(c);                  // 충격 지대 중심 → 대상 사슬
   drawFx();
 
   // 체력바
   for (const t of w.turrets) if (!t.dead && t.team !== me.team) drawTurretBar(t);
   for (const d of w.dummies) drawDummyBar(d);
-  for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - SPRITE_H[c.key] - 7); }
+  for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - spriteH(c) - 7); }
   if (!me.dead && !me.yq) drawSelfInfo(me);   // 나에게만: 명상 바·피해 감소 %, 우주류 검술 남은 시간
 
   // 떠오르는 숫자
@@ -1396,6 +1670,7 @@ function render(now) {
     ctx.strokeText(t.txt, x, y); ctx.fillText(t.txt, x, y);
     ctx.restore();
   }
+  drawScreenTint();   // 세계의 종결자 발동 순간의 화면 물듦(맨 위)
 }
 
 /* =====================================================================
