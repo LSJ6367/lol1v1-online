@@ -91,6 +91,11 @@ button { font: inherit; color: inherit; }
 @keyframes garenHeal { 50% { box-shadow: 0 0 26px rgba(170,255,200,1); } }
 #pCd { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font-family: var(--display); font-size: 11px; line-height: 1.25; background: rgba(5,8,11,.88); color: #f3e3b0; font-variant-numeric: tabular-nums; pointer-events: none; }
 #pCd.heal { background: rgba(18,120,64,.92); color: #eafff1; }
+/* 아트록스 사신 태세: 어두운 붉은 아이콘 칸. 준비되면 붉게 빛남(재사용 글자 '준비'도 붉게) */
+#passiveBtn.aatrox { background: radial-gradient(circle at 50% 40%, #2c0810, #0b0304); border-color: #8e1b26; }
+#passiveBtn.aatrox.ready { border-color: #ff3b4b; box-shadow: 0 0 16px rgba(255,40,60,.9); animation: aaReady .9s ease-in-out infinite; }
+@keyframes aaReady { 50% { box-shadow: 0 0 26px rgba(255,90,100,1); } }
+#pCd.ready { background: rgba(140,8,24,.92); color: #ffe3e3; }
 #passiveTip { z-index: 5; position: absolute; top: 72px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(330px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 32px rgba(0,0,0,.55); pointer-events: none; }
 #passiveTip h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 18px; color: var(--gold-hi); }
 #passiveTip p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--text); }
@@ -153,8 +158,19 @@ button { font: inherit; color: inherit; }
 .sk.emp { border-color: #ffe066; box-shadow: 0 0 16px rgba(255,214,80,.9); animation: empPulse .9s ease-in-out infinite; }
 .sk.emp::after { background: conic-gradient(rgba(255,214,80,.34) calc(var(--emp, 0) * 360deg), transparent 0); }
 .sk.on { border-color: #ffd23f; box-shadow: 0 0 12px rgba(255,210,70,.7); }
+/* 아트록스 스킬: 어두운 붉은 버튼. Q 단계 배지(1·2·3, 오른쪽 위 바깥)와 재사용 창 고리(얇은 빨강, 창이 줄어듦). 준비 중(W·E·R): 흐림 + 자물쇠 */
+.sk.aat { background: radial-gradient(circle at 40% 35%, #3a0d14, #100507); border-color: #8e1b26; color: #ff8a8a; }
+.sk.aat.aqon { border-color: #ff4a57; box-shadow: 0 0 12px rgba(255,60,70,.8); }
+.sk .arng { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%) rotate(-90deg); pointer-events: none; }
+.sk .arng circle { fill: none; stroke-width: 1.6; }
+.sk .arng .rb { stroke: rgba(255,60,70,.16); }
+.sk .arng .arf { stroke: #ff4a57; stroke-dasharray: 100; stroke-linecap: round; }
+.stg { position: absolute; right: -5px; top: -5px; z-index: 3; min-width: 19px; height: 19px; padding: 0 4px; display: grid; place-items: center; border-radius: 10px; background: #ff3d4d; border: 1.5px solid #1b0306; color: #fff; font-family: var(--display); font-size: 12px; line-height: 1; box-shadow: 0 0 8px rgba(255,50,70,.85); pointer-events: none; font-variant-numeric: tabular-nums; }
+.sk.locked { filter: grayscale(.85) brightness(.6); opacity: .8; }
+.sk.locked svg:not(.lockI) { opacity: .55; }
+.sk .lockI { position: absolute; right: 6%; bottom: 6%; width: 34%; height: 34%; color: #d6dde5; stroke-width: 2.4; }
 @keyframes empPulse { 50% { box-shadow: 0 0 24px rgba(255,240,160,1); } }
-@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready, #passiveBtn.heal, .sk.emp { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .lvup { animation: none; } #passiveBtn.ready, #passiveBtn.heal, #passiveBtn.aatrox.ready, .sk.emp { animation: none; } }
 /* ---------- 로비 · 대기실 · 결과 ---------- */
 .screen { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 14px; overflow: auto; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); background: linear-gradient(180deg, rgba(8,13,19,.80), rgba(8,13,19,.93)); touch-action: pan-y; }
 .screen header { text-align: center; }
@@ -328,6 +344,7 @@ button { font: inherit; color: inherit; }
       <div class="skw" data-k="q" style="--dx:-150;--dy:4">
         <button class="lvup" type="button" data-k="q" hidden>▲</button>
         <button class="sk" type="button" data-k="q" data-lv="0"></button>
+        <span class="stg" hidden aria-hidden="true"></span>
         <div class="dots" aria-hidden="true"></div>
       </div>
       <div class="skw" data-k="w" style="--dx:-123;--dy:-86">

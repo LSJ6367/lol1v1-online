@@ -35,6 +35,7 @@ function render(opts) {
     darius: dataUri('assets/darius.png', 'image/png'),
     yi: dataUri('assets/yi.png', 'image/png'),
     garen: dataUri('assets/garen.png', 'image/png'),
+    aatrox: dataUri('assets/aatrox.png', 'image/png'),
     walk: JSON.parse(read('shared/walk_rle.json')),
   };
   const assetsJson = safeScript(JSON.stringify(assets));

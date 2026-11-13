@@ -11,9 +11,13 @@
    ===================================================================== */
 const { TICK, MAP_W, MAP_H, HIT_R, SK, BLEED, TURRET_CFG, CHAMPS, SKILL_KEYS, px } = Core;
 const VIEW_H = 576, VIEW_MIN_W = 816;                 // 컨셉 화면 기준 카메라 영역(px)
-const SPRITE_H = { darius: 56, yi: 58, garen: 60 };   // 스프라이트 높이(px)
-const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39 };   // 발 위치(가로 비율)
+const SPRITE_H = { darius: 56, yi: 58, garen: 60, aatrox: 62 };   // 스프라이트 높이(px). 아트록스는 검이 위로 길어서 키가 큼
+const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39, aatrox: 0.52 };   // 발 위치(가로 비율)
 const GAR = Core.SKILLS.garen;                        // 가렌 수치(화면 표시·범위용). 규칙은 Core가 계산
+const AQ = Core.SKILLS.aatrox.q;                      // 아트록스 Q 수치(시전 시간·재사용 창, 화면 표시용)
+/* 아직 만들지 않은 스킬: 화면에서 "준비 중"(흐림 + 자물쇠)으로 보이고, 누르기·레벨업을 보내지 않음. 아트록스 W·E·R (DESIGN_AATROX §3) */
+const LOCKED_SKILLS = { aatrox: ['w', 'e', 'r'] };
+const isLockedSkill = (key, k) => (LOCKED_SKILLS[key] || []).includes(k);
 const spinLocked = me => !!me && me.key === 'garen' && !!me.ge && me.ge.t < GAR.e.cancelLock - 1e-9;   // 심판 시작 뒤 cancelLock초: E 취소 불가(Core castGaren과 같은 판정)
 const fmt = (n, d = 0) => Number(n).toFixed(d);
 const dmgTxt = n => n < 10 ? fmt(n, 1) : fmt(n, 0);
@@ -25,7 +29,7 @@ Core.setMap(A.walk);
 
 const imgs = {};
 function loadImg(k, src) { return new Promise(res => { const i = new Image(); i.onload = () => { imgs[k] = i; res(); }; i.src = src; }); }
-const ready = Promise.all([loadImg('map', A.map), loadImg('darius', A.darius), loadImg('yi', A.yi), loadImg('garen', A.garen)]);
+const ready = Promise.all([loadImg('map', A.map), loadImg('darius', A.darius), loadImg('yi', A.yi), loadImg('garen', A.garen), loadImg('aatrox', A.aatrox)]);
 
 /* 세션(LocalSession / OnlineSession)은 session_local.js, session_online.js 에 있다. 여기서는 인터페이스만 사용 */
 let session = null;      // null이면 챔피언 선택 화면
@@ -55,8 +59,8 @@ function sendInput() {
   const sig = `${mx.toFixed(3)},${my.toFixed(3)},${atk ? 1 : 0}`;
   if (sig !== lastSent) { lastSent = sig; session.send({ type: 'input', id: session.myId, mx, my, atk }); }
 }
-function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence && !(k === 'e' && spinLocked(me))) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중·심판 잠금 중(E)에는 보내지 않음
-function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', id: me.id, skill: k }); }
+function castSkill(k, ang) { const me = ME(); if (me && phase === 'play' && !me.silence && !(k === 'e' && spinLocked(me)) && !isLockedSkill(me.key, k)) session.send({ type: 'cast', id: me.id, skill: k, ang }); }   // 침묵 중·심판 잠금 중(E)·준비 중 스킬에는 보내지 않음
+function levelUp(k) { const me = ME(); if (me && !isLockedSkill(me.key, k)) session.send({ type: 'levelup', id: me.id, skill: k }); }
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
 
@@ -126,10 +130,10 @@ statBtn.addEventListener('click', () => {
 const ROWS = [
   ['lv', '레벨'], ['hp', '체력'], ['regen', '체력 재생'], ['mana', '마나'], ['mregen', '마나 재생'],
   ['ad', '공격력'], ['ap', '주문력'], ['as', '공격속도'], ['armor', '방어력'], ['mr', '마법저항력'],
-  ['pen', '물리관통력'], ['ten', '강인함'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트']
+  ['pen', '물리관통력'], ['omni', '모든 피해 흡혈'], ['ten', '강인함'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트']
 ];
-// 강인함은 0보다 클 때만 보임(refreshPanel이 줄 전체를 켜고 끔)
-$('#spRows').innerHTML = ROWS.map(([k, l]) => `<dt${k === 'ten' ? ' hidden' : ''}>${l}</dt><dd id="sp_${k}"${k === 'ten' ? ' hidden' : ''}>-</dd>`).join('');
+// 강인함·모든 피해 흡혈은 0보다 클 때만 보임(refreshPanel이 줄 전체를 켜고 끔)
+$('#spRows').innerHTML = ROWS.map(([k, l]) => { const h = k === 'ten' || k === 'omni'; return `<dt${h ? ' hidden' : ''}>${l}</dt><dd id="sp_${k}"${h ? ' hidden' : ''}>-</dd>`; }).join('');
 function refreshPanel() {
   const me = ME(); if (!me || panel.hidden) return;
   const s = me.stats, set = (k, v) => { const el = $('#sp_' + k); if (el.textContent !== v) el.textContent = v; };
@@ -150,7 +154,11 @@ function refreshPanel() {
   const ten = Core.tenacityOf(me), tenOn = ten > 0;
   $('#sp_ten').hidden = !tenOn; $('#sp_ten').previousElementSibling.hidden = !tenOn;
   if (tenOn) set('ten', `${fmt(ten * 100, 0)}%`);
-  set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', `${s.range + (me.wBuff ? SK.w.rangeBonus : 0)} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
+  const om = Core.omnivampOf(me), omOn = om > 0;   // 모든 피해 흡혈(아이템 등): 0보다 클 때만 줄을 보임
+  $('#sp_omni').hidden = !omOn; $('#sp_omni').previousElementSibling.hidden = !omOn;
+  if (omOn) set('omni', `${+(om * 100).toFixed(1)}%`);
+  const rb = (me.wBuff ? SK.w.rangeBonus : 0) + (me.key === 'aatrox' && me.apCd <= 0 ? Core.AATROX_PASSIVE.range : 0);   // 평타 사거리 보너스: 다리우스 W, 아트록스 사신 태세 준비(+50)
+  set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', rb ? `${s.range + rb} 유닛 (+${rb})` : `${s.range} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
 }
 setInterval(refreshPanel, 120);
 
@@ -173,6 +181,12 @@ const PASSIVE_UI = {
     title: '패시브 · 인내심',
     desc: '8초 동안 피해를 입지 않으면 5초마다 최대 체력의 2.5% 회복',
     icon: '<path d="M12 20.5 4.5 13a4.6 4.6 0 0 1 7.5-5.3A4.6 4.6 0 0 1 19.5 13z" fill="#f0c75e" stroke="#fff1c2" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 11.4a2.3 2.3 0 0 1 2.2-1.8" fill="none" stroke="#fff8e0" stroke-width="1.3" stroke-linecap="round"/>'
+  },
+  aatrox: {   // 사신 태세: 어두운 붉은 검날 아이콘 (DESIGN_AATROX §2-2, §3)
+    label: '패시브 사신 태세. 누르고 있으면 설명이 보입니다',
+    title: '패시브 · 사신 태세',
+    desc: '기본 공격의 사거리가 50 늘어나고, 다음 기본 공격이 챔피언이나 허수아비에 맞으면 대상 최대 체력의 4% + 레벨당 0.35%만큼 마법 피해를 추가로 입히고, 그 피해만큼 체력을 회복합니다. 재사용 대기시간은 22초. 기본 공격이 맞으면 2초, Q는 끝부분(1-3은 중심)에 맞으면 4초, 몸통만 맞으면 2초 줄어듭니다.',
+    icon: '<path d="M12 1.6 14.4 12 12 14.4 9.6 12z" fill="#b1142a" stroke="#ffb3ba" stroke-width="1.1" stroke-linejoin="round"/><path d="M12 3.8v8.2" fill="none" stroke="#ffd7dc" stroke-width="0.9" stroke-linecap="round" opacity=".8"/><path d="M5.6 15.2h12.8l-1.5 2H7.1z" fill="#3a0a12" stroke="#ff5f6b" stroke-width="1.1" stroke-linejoin="round"/><path d="M11 17.2h2v3.6h-2z" fill="#2a0b10" stroke="#ff5f6b" stroke-width="0.9"/><circle cx="12" cy="21.6" r="1.4" fill="#d4182f" stroke="#ffb3ba" stroke-width="0.8"/>'
   }
 };
 const pBtn = $('#passiveBtn'), pTip = $('#passiveTip'), pIco = $('#pIco'), pTipH = $('#pTipH'), pTipP = $('#pTipP');
@@ -183,6 +197,7 @@ function refreshPassive() {
   const me = ME(); if (!me || !PASSIVE_UI[me.key]) return;
   if (me.key === 'yi') { refreshYiPassive(me); return; }
   if (me.key === 'garen') { refreshGarenPassive(me); return; }
+  if (me.key === 'aatrox') { refreshAatroxPassive(me); return; }
   const on = me.might > 0;
   pBtn.classList.toggle('on', on); mightT.hidden = !on; if (on) mightT.textContent = fmt(me.might, 1) + 's';
   if (pTip.hidden) return;
@@ -214,6 +229,20 @@ function refreshGarenPassive(me) {   // 인내심: 회복까지 남은 시간(�
     ['용기 영구', `방어력·마법저항력 +${fmt(me.courage, 1)} (최대 +${GAR.w.maxBonus})`]
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
+/* 아트록스 사신 태세: 재사용 대기(고리·숫자), 준비되면 붉게 빛남. 길게 누르면 현재 % 피해·남은 재사용·평타 사거리 */
+function refreshAatroxPassive(me) {
+  const P = Core.AATROX_PASSIVE, ready = me.apCd <= 1e-9, cd = Math.max(0, me.apCd);
+  pBtn.classList.toggle('ready', ready); pCd.classList.toggle('ready', ready);
+  pBtn.style.setProperty('--pc', ready ? '0' : (cd / P.cd).toFixed(3));
+  setTxt(pCd, ready ? '준비' : fmt(cd, 1) + '초');
+  if (pTip.hidden) return;
+  const pct = P.pctBase + P.pctPerLvl * (me.level - 1);   // 레벨 6이면 5.76%
+  tipRows.innerHTML = [
+    ['현재 %', `${fmt(pct * 100, 2)}% (대상 최대 체력)`],
+    ['남은 재사용', ready ? '준비됨' : `${fmt(cd, 1)}초`],
+    ['평타 사거리', ready ? `${me.stats.range + P.range} (+${P.range})` : `${me.stats.range} (준비되면 +${P.range})`]
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
 let tipId = null;
 pBtn.addEventListener('pointerdown', e => { tipId = e.pointerId; pBtn.setPointerCapture(e.pointerId); pTip.hidden = false; refreshPassive(); e.preventDefault(); });
 const tipOff = e => { if (e.pointerId !== tipId) return; tipId = null; pTip.hidden = true; };
@@ -231,10 +260,10 @@ const held = {};   // 누르고 있는 스킬 버튼 { id, sx, sy, t, dragged, a
 const skW = {};
 for (const k of SKILL_KEYS) {
   const w = document.querySelector(`.skw[data-k="${k}"]`);
-  skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), dots: [], cdT: null, s: {} };
+  skW[k] = { w, b: w.querySelector('.sk'), up: w.querySelector('.lvup'), dotBox: w.querySelector('.dots'), stg: w.querySelector('.stg'), dots: [], cdT: null, s: {} };
   const b = skW[k].b;
   b.addEventListener('pointerdown', e => {
-    const me = ME(); if (!me || me.dead || me.silence || (k === 'e' && spinLocked(me))) return;   // 침묵 중·심판 잠금 중에는 눌러도 아무 일도 없음(조준 표시도 안 함)
+    const me = ME(); if (!me || me.dead || me.silence || (k === 'e' && spinLocked(me)) || isLockedSkill(me.key, k)) return;   // 침묵 중·심판 잠금 중·준비 중 스킬에는 눌러도 아무 일도 없음(조준 표시도 안 함)
     held[k] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
     b.setPointerCapture(e.pointerId); e.preventDefault();
   });
@@ -272,8 +301,17 @@ const ICON = {
     w: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 19.5 5.6v5.6c0 4.5-3.1 8.1-7.5 9.9-4.4-1.8-7.5-5.4-7.5-9.9V5.6z" fill="currentColor" fill-opacity=".2"/><path d="M12 7.2l3.3 1.4v2.9c0 2.2-1.4 3.9-3.3 4.8-1.9-.9-3.3-2.6-3.3-4.8V8.6z"/></svg>',
     e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 8.4A7.4 7.4 0 1 0 19.4 13.2"/><path d="M19.6 4.6v4.2h-4.2"/><path d="M12 7.2v8.2M10 15.4h4"/></svg>',
     r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.8v2.4"/><path d="M6.4 8.6h11.2"/><path d="M12 8.6v1.4"/><path d="M9.2 10h5.6l-2.8 12.2z" fill="currentColor" fill-opacity=".25"/></svg>'
+  },
+  aatrox: {   // Q 다르킨의 검: 큰 다르킨 대검(가시 날·긴 검날·손잡이) · W·E·R는 준비 중이라 흐린 임시 모양
+    q: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 12.4 8.7 4.6l1-1.4 1.9 2.2 1.4-2.8L14.4 5l1.9-2.2 1 1.4-.7 7.8z" fill="currentColor" fill-opacity=".32"/><path d="M12 1.8v10.9M9.6 7.4 12 9.2l2.4-1.8"/><path d="M3.5 15.4 6.6 14l2 1.1L12 13.7l3.4 1.4 2-1.1 3.1 1.4-2.3 1.9H5.8z" fill="currentColor" fill-opacity=".5"/><path d="M12 17v3.9"/><circle cx="12" cy="22" r="1.4" fill="currentColor"/></svg>',
+    w: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 7-7 11-6"/><path d="M14 9l5-3M14 9l3 5"/></svg>',
+    e: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7a5 5 0 1 0 5 5"/></svg>',
+    r: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19 7v10l-7 4.5L5 17V7z"/><path d="M9 11h6M9 14h6"/></svg>'
   }
 };
+/* 아트록스 Q: 재사용 창 고리(얇은 빨강, 창이 줄어듦) · 준비 중 스킬의 자물쇠 */
+const AQ_EXTRA = '<svg class="arng" viewBox="0 0 40 40" aria-hidden="true" hidden><circle class="rb" cx="20" cy="20" r="18"/><circle class="arf" cx="20" cy="20" r="18" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg>';
+const LOCK_ICON = '<svg class="lockI" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10.5" rx="2.2"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/></svg>';
 /* 가렌 E 버튼이 회전 중일 때 바뀌는 모양: X(취소) + 진행 고리. 평소에는 숨김 */
 const GAREN_E_EXTRA = '<svg class="stop" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 7l10 10M17 7 7 17"/></svg>' +
   '<svg class="ring" viewBox="0 0 40 40" aria-hidden="true" hidden><circle class="rb" cx="20" cy="20" r="17"/><circle class="rf" cx="20" cy="20" r="17" pathLength="100" stroke-dashoffset="100"/></svg>';
@@ -282,12 +320,17 @@ let skinKey = null;   // 지금 버튼에 그려진 챔피언
 function applySkin(key) {
   const def = Core.SKILLS[key];
   SKILL_KEYS.forEach((k, i) => {
-    const o = skW[k], label = (k === 'r' ? '궁극기 · ' : `스킬 ${i + 1} · `) + def[k].name;
-    o.b.innerHTML = ICON[key][k] + (key === 'garen' && k === 'e' ? GAREN_E_EXTRA : '') + '<span class="cdT"></span>';
+    const o = skW[k], locked = isLockedSkill(key, k);
+    const base = (k === 'r' ? '궁극기 · ' : `스킬 ${i + 1} · `) + def[k].name, label = locked && !base.includes('준비 중') ? base + ' · 준비 중' : base;
+    // 스킬별 덧붙임: 가렌 E 회전 취소 · 아트록스 Q 재사용 고리 · 준비 중 스킬 자물쇠
+    const extra = locked ? LOCK_ICON : (key === 'garen' && k === 'e' ? GAREN_E_EXTRA : (key === 'aatrox' && k === 'q' ? AQ_EXTRA : ''));
+    o.b.innerHTML = ICON[key][k] + extra + '<span class="cdT"></span>';
     o.cdT = o.b.querySelector('.cdT'); o.icon = o.b.firstElementChild;
     o.stop = o.b.querySelector('.stop'); o.ring = o.b.querySelector('.ring'); o.rf = o.b.querySelector('.rf');
+    o.arng = o.b.querySelector('.arng'); o.arf = o.b.querySelector('.arf');
     o.base = label;
-    o.b.setAttribute('aria-label', label); o.up.setAttribute('aria-label', label + ' 레벨업');
+    o.b.classList.toggle('aat', key === 'aatrox');   // 아트록스 스킬 버튼: 어두운 붉은 테두리
+    o.b.setAttribute('aria-label', label); o.up.setAttribute('aria-label', base + ' 레벨업');
     o.dotBox.innerHTML = ''; o.dots = [];
     for (let n = 0; n < (k === 'r' ? 3 : def[k].max); n++)   // 궁극기 점은 3개(원래 명세 5/5/5/3), 지금은 1레벨까지만 찍힘
     { const d = document.createElement('i'); o.dotBox.appendChild(d); o.dots.push(d); }
@@ -295,8 +338,8 @@ function applySkin(key) {
   });
   pIco.innerHTML = PASSIVE_UI[key].icon;
   pBtn.setAttribute('aria-label', PASSIVE_UI[key].label);
-  pBtn.classList.remove('on', 'ready', 'heal'); pBtn.classList.toggle('yi', key === 'yi'); pBtn.classList.toggle('garen', key === 'garen');
-  pBtn.style.removeProperty('--pc'); pCd.hidden = key !== 'garen';
+  pBtn.classList.remove('on', 'ready', 'heal'); pBtn.classList.toggle('yi', key === 'yi'); pBtn.classList.toggle('garen', key === 'garen'); pBtn.classList.toggle('aatrox', key === 'aatrox');
+  pBtn.style.removeProperty('--pc'); pCd.hidden = key !== 'garen' && key !== 'aatrox';   // 재사용 글자: 가렌 인내심·아트록스 사신 태세
   mightT.hidden = true; stackN.hidden = key !== 'yi';
   pTipH.textContent = PASSIVE_UI[key].title; pTipP.textContent = PASSIVE_UI[key].desc;
   skinKey = key;
@@ -309,10 +352,21 @@ function refreshSkills() {
     if (!on) continue;
     const lv = me.sk[k], max = Core.SKILLS[me.key][k].max, set = (name, v, fn) => { if (o.s[name] !== v) { o.s[name] = v; fn(v); } };
     set('lv', lv, v => { o.b.dataset.lv = v; o.dots.forEach((d, i) => d.classList.toggle('on', i < v)); });
-    set('up', me.sp > 0 && lv < max && !me.dead, v => { o.up.hidden = !v; });
+    const locked = isLockedSkill(me.key, k);   // 준비 중 스킬: 흐림 + 자물쇠, 레벨업 점 없음
+    set('locked', locked, v => o.b.classList.toggle('locked', v));
+    set('up', me.sp > 0 && lv < max && !me.dead && !locked, v => { o.up.hidden = !v; });
+    // 아트록스 Q: 다음 단계(1·2·3) 배지. 재사용 창(3초)이 열려 있으면 얇은 빨간 고리가 줄어듦. 단계가 있으면 쿨타임 대신 이것을 보임 (A7)
+    let aqStg = 0;
+    if (me.key === 'aatrox' && k === 'q') {
+      aqStg = Core.aatroxQStage(me);
+      const win = aqStg > 0 && me.aqWin > 0 ? Math.min(1, me.aqWin / AQ.window) : 0;
+      set('stg', aqStg, v => { o.stg.hidden = !v; o.stg.textContent = v ? String(v) : ''; o.b.classList.toggle('aqon', v > 0); });
+      set('arng', win > 0, v => setHidden(o.arng, !v));
+      if (win > 0) set('arf', (100 * (1 - win)).toFixed(1), v => o.arf.setAttribute('stroke-dashoffset', v));
+    }
     // 가렌: 심판 회전 중 E = 취소 버튼(X + 진행 고리, 쿨타임 표시 없음) · 결정타 강화 중 Q = 노란 빛(쿨타임은 강화가 끝나야 흐르므로 가림)
     const G = me.key === 'garen', spin = G && k === 'e' && !!me.ge, emp = G && k === 'q' && !!me.gq, act = G && ((k === 'w' && !!me.gw) || (k === 'r' && !!me.gr));
-    const cdv = (spin || emp) ? 0 : me.cd[k], frac = cdv > 0 ? cdv / Core.skCd(me, k) : 0;
+    const cdv = (spin || emp || aqStg > 0) ? 0 : me.cd[k], frac = cdv > 0 ? cdv / Core.skCd(me, k) : 0;   // 아트록스 Q 단계가 있으면 쿨타임 대신 단계 표시
     set('cdf', frac.toFixed(3), v => o.b.style.setProperty('--cd', v));
     set('cdt', cdv > 0 ? (cdv >= 10 ? String(Math.ceil(cdv)) : fmt(cdv, 1)) : '', v => { o.cdT.textContent = v; });
     set('nm', lv > 0 && me.mana < Core.skMana(me, k), v => o.b.classList.toggle('nomana', v));
@@ -385,7 +439,7 @@ window.Game = {
     snapCam();
     const me = ME(); pBtn.hidden = !me || !PASSIVE_UI[me.key]; pTip.hidden = true;
     if (me && skinKey !== me.key) applySkin(me.key);
-    prevPos.clear();
+    prevPos.clear(); apPrev.clear();
     setTestTools(!!sess.test);
     $('#tReselect').textContent = sess.online ? '방 나가기' : '챔피언 다시 선택';
     $('#pingT').hidden = !sess.online;
@@ -404,7 +458,7 @@ window.Game = {
 /* =====================================================================
    코어 이벤트 → 화면 효과
    ===================================================================== */
-const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
+const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9, aqHit: 0.35 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초)
 /* 가렌 결정타 강화 평타 판별: 직전 프레임에 강화(gq)가 있었고 이번 프레임에 사라졌으면 그 평타가 강화 평타(클라이언트에서 추적) */
 const gqWas = new Map();
 function garenEmpowered() { return W().champs.some(c => c.key === 'garen' && gqWas.get(c.id) && !c.gq); }
@@ -425,6 +479,7 @@ function handleEvents() {
     }
     else if (ev.type === 'banner') showBanner(ev.txt, ev.bad, ev.sec);
   }
+  detectAatroxProcs(W());   // 사신 태세 적중 폭발(상태 변화로 감지)
 }
 
 /* =====================================================================
@@ -527,7 +582,8 @@ function drawTurretBar(t) {
 
 function liftOf(c) {
   return (c.air > 0 ? Math.sin(Math.PI * Math.min(1, 1 - c.air / c.airMax)) * 20 + 6 : 0) +
-         (c.cast && c.cast.type === 'r' ? Math.sin(Math.PI * Math.min(1, c.cast.t / c.cast.dur)) * 30 : 0);
+         (c.cast && c.cast.type === 'r' ? Math.sin(Math.PI * Math.min(1, c.cast.t / c.cast.dur)) * 30 : 0) +
+         (c.aq ? aqPose(c).raise : 0);   // 아트록스 Q 시전 자세: 들어 올림(1단계 높이 들기, 3단계 뛰어오름)
 }
 /* 챔피언 효과: 명상(초록 아우라 · 발밑 링 · 올라가는 입자), 최후의 전사(붉은 아우라 · 뒤쪽 속도선), 우주류 검술(금색 반짝임) */
 const prevPos = new Map();   // 챔피언별 직전 프레임 위치(속도선 방향용)
@@ -605,21 +661,24 @@ function drawChamp(c) {
     ctx.beginPath(); ctx.ellipse(x, y, sw * 0.36, 7.5, 0, 0, 7);
     ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,70,80,${0.55 + 0.3 * Math.sin(clockT * 9)})`; ctx.stroke();
   }
-  const lift = liftOf(c);
+  const lift = liftOf(c), pose = c.aq ? aqPose(c) : null;
   if (!c.dead) drawAuraBack(c, x, y, sw, sh, lift, vx, vy);
   if (c.key === 'garen' && !c.dead) drawGarenBack(c, x, y, sw, sh, lift, vx, vy);
+  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0) aatroxReadyBack(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 붉은 기운(뒤)
   const bob = c.moving && !c.dead ? Math.abs(Math.sin(clockT * 11)) * 1.6 : 0;
-  const lg = Math.sin(c.lunge * Math.PI) * 4;
+  const lg = Math.sin(c.lunge * Math.PI) * 4, fw = pose ? pose.fwd : 0;   // fw: Q 시전 중 앞으로 한 걸음(조준 방향)
   ctx.save();
   ctx.globalAlpha = c.dead ? 0.35 : 1;
-  ctx.translate(x + c.lungeDir[0] * lg, y - bob - lift + c.lungeDir[1] * lg);
+  ctx.translate(x + c.lungeDir[0] * lg + Math.cos(c.aq ? c.aq.ang : 0) * fw, y - bob - lift + c.lungeDir[1] * lg + Math.sin(c.aq ? c.aq.ang : 0) * fw * 0.5);
   if (c.ge) {   // 가렌 심판 회전: 몸이 살짝 흔들리고 좌우로 눌렸다 펴짐(초당 3번 뒤집히는 느낌)
     ctx.rotate(Math.sin(c.ge.t * Math.PI * 6) * 0.06);
     ctx.scale((c.facing < 0 ? -1 : 1) * (0.72 + 0.28 * Math.abs(Math.cos(c.ge.t * Math.PI * 3))), 1);
   } else if (c.facing < 0) ctx.scale(-1, 1);
+  if (pose) ctx.rotate(pose.rot);   // 기울기: 발 기준(양수 = 앞으로 숙임. 뒤집힌 그림에서도 앞쪽)
   ctx.drawImage(img, -ax * sw, -sh, sw, sh);
   ctx.restore();
   if (!c.dead) drawAuraFront(c, x, y, sw, sh, lift);
+  if (c.key === 'aatrox' && !c.dead && c.apCd <= 0) aatroxReadyFront(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 불티(앞)
   if (c.key === 'garen' && !c.dead) drawGarenFront(c, x, y, sw, sh, lift);
   if (c.wBuff && !c.dead) {   // 스킬 2: 주황색으로 반짝이는 이펙트
     for (let i = 0; i < 6; i++) {
@@ -774,6 +833,199 @@ function drawDummyBar(d) {
   ctx.fillText(`총 피해 ${fmt(d.total, 0)} · 최근 5초 DPS ${fmt(Core.dummyDps(W(), d), 1)}`, x, y0 - 5);
 }
 
+/* ---------- 아트록스 효과 (DESIGN_AATROX §3). 모두에게 보임: 사신 태세 준비 빛, Q 시전 자세·예고, 판정 효과, 적중 폭발 ---------- */
+const apPrev = new Map();   // 챔피언별 직전 프레임의 사신 태세 재사용 대기 (0 → 22 전환 = 방금 적중. detectAatroxProcs)
+const clamp01 = v => Math.min(1, Math.max(0, v));
+/* 도형 좌표: 아트록스 중심(x, y)에서 방향 ang으로 앞 f, 옆 s (유닛). Core.aatroxQShape와 같은 식 */
+const aqXY = (x, y, ang, f, s) => { const cs = Math.cos(ang), sn = Math.sin(ang); return [x + px(f) * cs - px(s) * sn, y + px(f) * sn + px(s) * cs]; };
+/* 도형 경로 (sweet = true면 끝부분·중앙). 사각형·사다리꼴은 다각형, 3단계는 원 */
+function aqPath(sh, sweet) {
+  const poly = sweet ? sh.sweetPoly : sh.poly, circ = sweet ? sh.sweetCircle : sh.circle;
+  ctx.beginPath();
+  if (poly) { poly.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath(); }
+  else if (circ) ctx.arc(circ.x, circ.y, circ.r, 0, 7);
+}
+/* Q 시전 자세(0.6초): 1단계 높이 들었다가 내리침 · 2단계 뒤로 젖혔다가 휘두름 · 3단계 살짝 뛰어올라 찍을 준비. 몸 기울기는 앞쪽(조준 방향) */
+function aqPose(c) {
+  const p = clamp01(c.aq.t / AQ.cast), s = Math.sin(Math.PI * p);
+  if (c.aq.stage === 1) return { raise: p < 0.8 ? 10 * Math.sin(p / 0.8 * Math.PI / 2) : 10 * (1 - (p - 0.8) / 0.2), rot: 0.1 * s, fwd: 3 * s };
+  if (c.aq.stage === 2) return { raise: 0, rot: -0.28 + 0.56 * p, fwd: 2 * s };
+  return { raise: 14 * s, rot: 0.06 * s, fwd: 0 };
+}
+/* 예고(모두에게, 챔피언 아래): 몸통은 빨간 선 2px + 아주 옅은 바닥. 끝부분(1-3은 중앙)은 진한 빨강. 끝부분 채움은 시전 0.6초 동안 차올라 타이밍을 읽게 함 */
+function drawAqTele(c) {
+  const Aq = c.aq, sh = Core.aatroxQShape(Aq.stage, Aq.x, Aq.y, Aq.ang), g = clamp01(Aq.t / AQ.cast), pulse = 0.9 + 0.1 * Math.sin(clockT * 9);
+  ctx.save();
+  aqPath(sh, false); ctx.fillStyle = 'rgba(255,60,60,.06)'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(235,50,55,.9)'; ctx.stroke();
+  ctx.save();
+  if (Aq.stage === 3) {   // 중앙 원: 가운데에서 바깥으로 커짐
+    ctx.beginPath(); ctx.arc(sh.sweetCircle.x, sh.sweetCircle.y, sh.sweetCircle.r * g, 0, 7);
+  } else {                // 끝부분 띠: 끝부분 안쪽(시작선)에서 끝(앞쪽)으로 차오름
+    const S = AQ['s' + Aq.stage], f0 = S.sweetFrom, far = Aq.stage === 1 ? S.len : S.front, f1 = f0 + g * (far - f0);
+    const band = [aqXY(Aq.x, Aq.y, Aq.ang, f0, -400), aqXY(Aq.x, Aq.y, Aq.ang, f1, -400), aqXY(Aq.x, Aq.y, Aq.ang, f1, 400), aqXY(Aq.x, Aq.y, Aq.ang, f0, 400)];
+    ctx.beginPath(); band.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); }); ctx.closePath(); ctx.clip();
+    aqPath(sh, true);
+  }
+  ctx.fillStyle = `rgba(150,0,18,${(0.45 * pulse).toFixed(3)})`; ctx.fill();
+  ctx.restore();
+  aqPath(sh, true); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(255,90,90,.75)'; ctx.stroke();
+  ctx.restore();
+}
+/* Q 조준(길게 누르는 중, 나에게만): 지금 단계의 도형(못 쓰는 상태면 1단계 모양을 점선으로). 바깥은 하늘색 선, 끝부분은 조금 더 진하게 채움. 취소 위에서는 빨간 점선 */
+function drawAqAim(me, x, y, ang, cancel) {
+  const st = Core.aatroxQStage(me), sh = Core.aatroxQShape(st || 1, x, y, ang);
+  ctx.save();
+  ctx.lineWidth = 2.2; ctx.strokeStyle = cancel ? 'rgba(255,90,100,.9)' : 'rgba(120,215,255,.95)';
+  if (cancel || !st) ctx.setLineDash([6, 5]);
+  aqPath(sh, false); ctx.fillStyle = cancel ? 'rgba(255,60,70,.10)' : 'rgba(120,215,255,.10)'; ctx.fill(); ctx.stroke();
+  aqPath(sh, true); ctx.fillStyle = cancel ? 'rgba(255,60,70,.28)' : 'rgba(120,215,255,.30)'; ctx.fill();
+  ctx.restore();
+}
+/* 칼날 줄기(1-1 내리찍기): 중심(뒤, 0)에서 len 유닛 앞까지 축을 따라, 뒤는 가늘고 앞은 W 픽셀로 굵은 띠 */
+function aqStreak(x, y, ang, len, W, col) {
+  const cs = Math.cos(ang), sn = Math.sin(ang), N = 12, L = [], Rr = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, d = px(len * u), w = W * Math.pow(u, 1.4) * 0.5 + 0.2;
+    L.push([x + cs * d - sn * w, y + sn * d + cs * w]); Rr.push([x + cs * d + sn * w, y + sn * d - cs * w]);
+  }
+  ctx.beginPath(); L.forEach(([qx, qy], i) => { if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy); });
+  for (let i = Rr.length - 1; i >= 0; i--) ctx.lineTo(Rr[i][0], Rr[i][1]);
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+/* 호 모양 띠(1-2 휘두르기): 가운데가 두껍고 양 끝이 가늘다. th = 가장 두꺼운 곳의 두께 */
+function aqCrescent(cx, cy, R, a0, a1, th, col) {
+  const N = 24, at = u => th * Math.pow(Math.sin(Math.PI * u), 0.8) * 0.5;
+  ctx.beginPath();
+  for (let i = 0; i <= N; i++) { const u = i / N, a = a0 + (a1 - a0) * u, r = R + at(u); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  for (let i = N; i >= 0; i--) { const u = i / N, a = a0 + (a1 - a0) * u, r = R - at(u) * 0.45; ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+/* 판정 효과(0.35초, 붉은색과 주황색을 섞음). 1단계 내리찍기: 검날이 축을 따라 끝까지 그어지고 끝부분에서 충격파·균열·먼지.
+   2단계 휘두르기: 뒤쪽 끝에서 앞쪽 끝으로 호가 쓸고 지나가고 앞쪽 가장자리에 불꽃. 3단계 원형 찍기: 중심에서 고리 충격파·바닥 균열 */
+function drawAqHit(f, p) {
+  const sh = Core.aatroxQShape(f.stage, f.x, f.y, f.ang), fa = 1 - p, e = 1 - fa * fa;   // e: 처음에 빨리 퍼지는 곡선
+  if (f.stage === 1) {
+    ctx.save(); aqPath(sh, true); ctx.fillStyle = `rgba(255,95,45,${(0.55 * fa).toFixed(3)})`; ctx.fill(); ctx.restore();
+    // 검날 줄기: 아트록스 중심에서 끝까지 축을 따라 그어짐(0.12초), 뒤(중심)는 가늘고 앞(끝)이 굵음. 이후 페이드
+    const head = AQ.s1.len * clamp01(p / 0.35), sa = p < 0.35 ? 1 : Math.max(0, fa / 0.65);
+    ctx.save(); ctx.globalAlpha = sa;
+    aqStreak(f.x, f.y, f.ang, head, 30, 'rgba(200,28,32,.85)');
+    aqStreak(f.x, f.y, f.ang, head, 17, 'rgba(255,130,55,.95)');
+    aqStreak(f.x, f.y, f.ang, head, 5, 'rgba(255,245,215,.95)');
+    ctx.restore();
+    const [cx, cy] = aqXY(f.x, f.y, f.ang, 555, 0), R = px(170) * e;   // 충격파: 끝부분 안쪽, 바닥에 눌린 타원
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(f.ang); ctx.scale(1, 0.55);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(1, R));
+    g.addColorStop(0, `rgba(255,205,120,${(0.75 * fa).toFixed(3)})`); g.addColorStop(0.45, `rgba(255,95,40,${(0.5 * fa).toFixed(3)})`); g.addColorStop(1, 'rgba(200,20,30,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, Math.max(1, R), 0, 7); ctx.fill();
+    ctx.lineWidth = 3 * fa + 0.8; ctx.strokeStyle = `rgba(255,120,60,${fa.toFixed(3)})`; ctx.beginPath(); ctx.arc(0, 0, R * 0.9, 0, 7); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = `rgba(190,20,35,${fa.toFixed(3)})`; ctx.beginPath(); ctx.arc(0, 0, R * 0.6, 0, 7); ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.lineCap = 'round';   // 균열 7줄: 충격점에서 앞쪽으로 갈라짐 (주황·진홍 번갈아)
+    for (let i = 0; i < 7; i++) {
+      const a = f.ang + (i - 3) * 0.44, L1 = px(40 + 60 * e) * (i % 3 === 0 ? 1.2 : 1), side = i % 2 ? 1 : -1;
+      ctx.strokeStyle = i % 2 ? `rgba(255,130,60,${fa.toFixed(3)})` : `rgba(150,15,25,${fa.toFixed(3)})`; ctx.lineWidth = 2.2 * fa + 0.4;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * L1 * 0.5 - Math.sin(a) * 3 * side, cy + Math.sin(a) * L1 * 0.5 + Math.cos(a) * 3 * side);
+      ctx.lineTo(cx + Math.cos(a) * L1, cy + Math.sin(a) * L1 * 0.8); ctx.stroke();
+    }
+    for (let i = 0; i < 9; i++) {   // 먼지: 흩어지며 위로 떠오름
+      const a = i * 2.4 + 0.5, r = px(30 + 90 * e) * (0.5 + 0.5 * ((i * 37) % 10) / 10);
+      ctx.fillStyle = `rgba(200,170,140,${(0.55 * fa).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.6 - p * px(16), 1.4 + 1.6 * fa, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  } else if (f.stage === 2) {
+    ctx.save(); aqPath(sh, true); ctx.fillStyle = `rgba(255,120,50,${(0.4 * fa).toFixed(3)})`; ctx.fill(); ctx.restore();
+    const H = 0.8, q = clamp01(p / 0.5), hA = f.ang - H + 2 * H * (1 - (1 - q) * (1 - q)), t0 = Math.max(f.ang - H, hA - 1.0), R = px(390);
+    ctx.save(); ctx.globalAlpha = p < 0.5 ? 1 : Math.max(0, fa / 0.5);   // 호는 0.5초 동안 쓸고 그 뒤 사라짐
+    aqCrescent(f.x, f.y, R, t0, hA, px(70), 'rgba(195,25,30,1)');     // 바깥: 붉은 끝
+    aqCrescent(f.x, f.y, R, t0, hA, px(42), 'rgba(255,115,50,1)');    // 가운데: 주황 몸
+    aqCrescent(f.x, f.y, R, t0, hA, px(14), 'rgba(255,240,200,1)');   // 안쪽: 밝은 날
+    for (let i = 0; i < 8; i++) {   // 앞쪽 가장자리의 불꽃
+      const fr = (i * 0.37) % 1, r = R + px(4 + 16 * fr) + px(10) * p, a = hA - 0.06 * i;
+      ctx.fillStyle = `rgba(255,${200 + ((i * 53) % 40)},120,0.9)`;
+      ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * r, f.y + Math.sin(a) * r, 1.3 + 1.2 * fa, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  } else {
+    const [cx, cy] = aqXY(f.x, f.y, f.ang, 180, 0), RO = px(300) * e, RI = px(200) * e;   // 원형 찍기: 중심에서 충격파
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, px(200), 0, 7); ctx.fillStyle = `rgba(255,95,45,${(0.45 * fa).toFixed(3)})`; ctx.fill(); ctx.restore();
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, RO));
+    g.addColorStop(0, `rgba(255,190,110,${(0.5 * fa).toFixed(3)})`); g.addColorStop(0.6, `rgba(255,80,40,${(0.25 * fa).toFixed(3)})`); g.addColorStop(1, 'rgba(160,10,25,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, Math.max(1, RO), 0, 7); ctx.fill();
+    ctx.lineWidth = 3.4 * fa + 0.8; ctx.strokeStyle = `rgba(220,35,40,${(0.95 * fa).toFixed(3)})`; ctx.beginPath(); ctx.arc(cx, cy, RO, 0, 7); ctx.stroke();
+    ctx.lineWidth = 2.2 * fa + 0.6; ctx.strokeStyle = `rgba(255,150,70,${fa.toFixed(3)})`; ctx.beginPath(); ctx.arc(cx, cy, RI, 0, 7); ctx.stroke();
+    ctx.save(); ctx.lineCap = 'round';   // 바닥 균열 9줄: 가운데에서 사방으로
+    for (let i = 0; i < 9; i++) {
+      const a = i * Math.PI * 2 / 9 + 0.2, r0 = px(26), r1 = px(26 + 250 * clamp01(p / 0.6)) * (i % 2 ? 0.8 : 1);
+      ctx.strokeStyle = i % 2 ? `rgba(255,130,60,${fa.toFixed(3)})` : `rgba(150,15,25,${fa.toFixed(3)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+      ctx.lineTo(cx + Math.cos(a + 0.12) * (r0 + r1) / 2, cy + Math.sin(a + 0.12) * (r0 + r1) / 2);
+      ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.stroke();
+    }
+    ctx.restore();
+    for (let i = 0; i < 10; i++) {   // 먼지: 고리 둘레에서 바깥으로 흩어짐
+      const a = i * 0.63 + 0.2, r = RO * (0.92 + 0.12 * p);
+      ctx.fillStyle = `rgba(200,170,140,${(0.5 * fa).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.7 - p * px(8), 1.3 + 1.4 * fa, 0, 7); ctx.fill();
+    }
+  }
+}
+/* 사신 태세 적중(0.55초): 대상 위의 붉은 폭발과 바깥으로 튀는 가시. 평소 평타 호보다 크고 진함 */
+function drawProcBurst(f, p) {
+  const q = clamp01(p * 1.7), R = 10 + 42 * q;
+  ctx.translate(f.x, f.y);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+  g.addColorStop(0, 'rgba(255,225,225,.95)'); g.addColorStop(0.35, 'rgba(230,30,55,.8)'); g.addColorStop(1, 'rgba(120,0,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+  ctx.lineWidth = 3.6 * (1 - p) + 1; ctx.strokeStyle = 'rgba(255,70,90,.95)'; ctx.beginPath(); ctx.arc(0, 0, 12 + 40 * q, 0, 7); ctx.stroke();
+  ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(205,20,40,.95)';
+  for (let i = 0; i < 10; i++) {   // 가시: 바깥으로 뻗었다가 짧아짐
+    const a = f.rot + i * Math.PI / 5, r0 = 6 + 24 * q, r1 = r0 + 13 + 9 * (1 - p);
+    ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke();
+  }
+}
+/* 사신 태세 준비(c.apCd 0, 모두에게 보임): 검날에 붉고 검은 기운이 일렁임. 검날 = 스프라이트 위쪽 가운데(끝 v=0, 손잡이 v≈0.73, 가로 -0.09 × 너비) */
+const aqBlade = (c, x, y, sw, sh, lift) => ({ bx: x + (c.facing < 0 ? 1 : -1) * 0.09 * sw, yTip: y - lift - sh, yHilt: y - lift - sh * 0.73 });
+function aatroxReadyBack(c, x, y, sw, sh, lift) {   // 몸 뒤: 검날 주변 붉은 빛 + 검은 기운이 위로 말려 올라감
+  const { bx, yTip, yHilt } = aqBlade(c, x, y, sw, sh, lift), fl = 0.6 + 0.25 * Math.sin(clockT * 23) + 0.15 * Math.sin(clockT * 41);
+  auraGlow(bx, (yTip + yHilt) / 2, sh * 0.34, 0.5, '255,30,50', 0.55 * fl);
+  ctx.save(); ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const ph = (clockT * 0.9 + i / 3) % 1, ox = Math.sin(clockT * 6 + i * 2.1) * 3;
+    ctx.strokeStyle = `rgba(12,0,6,${(0.75 * Math.sin(ph * Math.PI)).toFixed(3)})`; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(bx, yHilt); ctx.quadraticCurveTo(bx + ox, yHilt - (yHilt - yTip) * 0.5, bx + ox * 1.6, yTip - ph * 8); ctx.stroke();
+  }
+  ctx.restore();
+}
+function aatroxReadyFront(c, x, y, sw, sh, lift) {   // 몸 앞: 검날을 따라 붉은 불티가 튐
+  const { bx, yTip, yHilt } = aqBlade(c, x, y, sw, sh, lift);
+  for (let i = 0; i < 6; i++) {
+    const u = (i / 6 + clockT * 0.7) % 1, tw = Math.sin(clockT * 31 + i * 2.3), sx = bx + Math.sin(i * 2.9 + clockT * 13) * 2.2, sy = yTip + (yHilt - yTip) * u;
+    ctx.fillStyle = `rgba(255,${tw > 0 ? 110 : 60},70,${(Math.sin(u * Math.PI) * (0.6 + 0.4 * tw)).toFixed(3)})`;
+    sparkle(sx, sy, 1.2 + 0.9 * (tw + 1) / 2);
+  }
+}
+/* 사신 태세 적중 감지(화면용): 재사용 대기가 0에서 22초로 바뀐 프레임 = 방금 적중. 코어는 따로 신호를 주지 않으므로 상태 변화로 본다.
+   대상 = 공격 중이던 대상, 없으면 가장 가까운 적 챔피언·허수아비 */
+function detectAatroxProcs(w) {
+  for (const c of w.champs) {
+    if (c.key !== 'aatrox') continue;
+    const was = apPrev.get(c.id); apPrev.set(c.id, c.apCd);
+    if (was === undefined || c.dead || !(was <= 1e-9 && c.apCd > was + 1)) continue;
+    let t = c.atk ? Core.unitOf(w, c.atk.targetId) : null;
+    if (!t || t.dead) {
+      let bd = Infinity;
+      for (const u of Core.enemiesOf(w, c)) { if (!Core.isChampLike(u)) continue; const d = Core.edgeDist(u, c); if (d < bd) { bd = d; t = u; } }
+    }
+    if (!t) continue;
+    const [x, y] = P2(t);
+    fxList.push({ fx: 'procBurst', x, y: y - (t.kind === 'dummy' ? 34 : SPRITE_H[t.key] * 0.5), rot: 0.3, t: 0, life: 0.55 });
+  }
+}
+
 /* 스킬 범위 표시 */
 function aimInfo(me) {   // 길게 누르는 중인 스킬의 예상 범위
   for (const k in held) if (held[k].show && me.sk[k] > 0) return { k, ang: held[k].dragged ? held[k].ang : autoAng(k === 'e'), cancel: held[k].cancel };
@@ -818,6 +1070,8 @@ function drawSkillWorld(me) {
     } else {
       ctx.beginPath(); ctx.ellipse(x, y, px(HIT_R) + 5, px(HIT_R) * 0.5 + 2.5, 0, 0, 7); ctx.fill(); ctx.stroke();
     }
+  } else if (me.key === 'aatrox') {   // 아트록스: Q만 조준(W·E·R은 준비 중이라 조준 없음). 지금 단계의 도형
+    if (a.k === 'q') drawAqAim(me, x, y, a.ang, a.cancel);
   } else if (a.k === 'q') {   // 안쪽 = 도끼 자루, 바깥 띠 = 도끼날
     ctx.beginPath(); ctx.arc(x, y, Ro, 0, 7); ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(120,215,255,.18)'; ctx.beginPath(); ctx.arc(x, y, Ri, 0, 7); ctx.fill(); ctx.stroke();
@@ -964,6 +1218,16 @@ function drawFx() {
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -22, 8 + 22 * p, 0, 7); ctx.fill();
       ctx.lineWidth = 1.8; ctx.strokeStyle = 'rgba(170,235,255,.85)';
       ctx.beginPath(); ctx.ellipse(0, 0, 10 + 16 * p, 4 + 6 * p, 0, 0, 7); ctx.stroke();
+    } else if (f.fx === 'slash' && f.key === 'aatrox') {   // 아트록스 평타: 무거운 짙은 붉은 베기(검은 테두리 · 진홍 · 밝은 날)
+      const a0 = f.ang - 1.5, sw = 3.0 * Math.min(1, p * 1.9), R = 25;
+      ctx.translate(f.x, f.y); ctx.globalAlpha = 1 - p * p;
+      ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(40,0,6,.7)'; ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
+      ctx.lineWidth = 7; ctx.strokeStyle = '#b3121f'; ctx.beginPath(); ctx.arc(0, 0, R, a0, a0 + sw); ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = '#ff7a6a'; ctx.beginPath(); ctx.arc(0, 0, R - 1, a0 + sw * 0.3, a0 + sw); ctx.stroke();
+    } else if (f.fx === 'aqHit') {   // 아트록스 Q 판정: 단계별 붉은·주황 효과
+      drawAqHit(f, p);
+    } else if (f.fx === 'procBurst') {   // 사신 태세 적중: 대상 위 큰 진홍 폭발
+      drawProcBurst(f, p);
     } else if (f.fx === 'slash') {
       ctx.translate(f.x, f.y); ctx.lineWidth = 3.2; ctx.strokeStyle = '#fff2c9';
       ctx.beginPath(); ctx.arc(0, 0, 17, f.ang - 1.0, f.ang - 1.0 + 2.0 * Math.min(1, p * 1.6)); ctx.stroke();
@@ -979,7 +1243,7 @@ function drawFx() {
     } else if (f.fx === 'atkRange') {   // 평타 사거리(내 챔피언만, handleEvents에서 거름): 스킬 조준 범위와 같은 하늘색 원. 내 위치를 따라가고 수명 동안 흐려짐
       const me = ME();
       if (me && !me.dead) {
-        const [x, y] = P2(me), R = px(HIT_R + me.stats.range + (me.wBuff ? SK.w.rangeBonus : 0));
+        const [x, y] = P2(me), R = px(HIT_R) + Core.atkRange(me);   // 코어의 평타 사거리(다리우스 W 보너스, 아트록스 사신 태세 +50 포함)
         ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.fillStyle = 'rgba(120,215,255,.10)';
         ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill(); ctx.stroke();
       }
@@ -1067,7 +1331,7 @@ function render(now) {
     for (const c of w.champs) {
       const [x, y] = P2(c);
       ctx.beginPath(); ctx.arc(x, y, px(HIT_R), 0, 7); ctx.strokeStyle = '#3fd07a'; ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y, px(HIT_R + c.stats.range), 0, 7); ctx.strokeStyle = 'rgba(77,163,255,.9)'; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(x, y, px(HIT_R) + Core.atkRange(c), 0, 7); ctx.strokeStyle = 'rgba(77,163,255,.9)'; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
     }
   }
 
@@ -1076,6 +1340,7 @@ function render(now) {
   drawChaseMarker(me);
 
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinGround(c);   // 심판 범위 원(챔피언보다 먼저: 바닥 효과)
+  for (const c of w.champs) if (c.aq && !c.dead) drawAqTele(c);            // 아트록스 Q 예고(모두에게 보임, 챔피언 아래)
   for (const d of w.dummies) drawBleedOrbs(d, false);
   for (const d of w.dummies) drawDummy(d);
   for (const d of w.dummies) drawBleedOrbs(d, true);
