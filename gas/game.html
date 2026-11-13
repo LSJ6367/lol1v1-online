@@ -274,7 +274,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>0A1074</b></p>
+    <p class="buildVer">버전 <b>2473D9</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -3355,10 +3355,39 @@ let shakeT = 0, shakeAmp = 0;   // 화면 흔들림(데마시아의 정의 착�
 /* 일격필살 타격마다 베는 방향: ang + π/2 기준 오프셋. 클라이언트가 타격 번호를 모르므로 받은 순서대로 순환(결정적) */
 const YSLASH_OFF = [-0.9, 0.7, -0.3, 1.2];
 let yslashN = 0;
+/* 떠오르는 글자 쌓기(B12): 같은 자리에 뜬 글자와 그려지는 위치가 겹치면 그 위로 쌓는다.
+   새 글자의 높이 = 겹치는 이웃의 지금 그려진 높이 바로 위(한 줄: 큰 글자가 끼면 17, 아니면 14).
+   피해 숫자는 아래, 숫자 없는 상태 글자는 위. 같은 프레임 글자는 숫자부터 자리를 잡는다. 떠오르는 속도는 모두 같아서 쌓은 간격이 유지된다 */
+const TXT_RISE = 24, TXT_LIFE = 0.9, TXT_NEAR_X = 24, TXT_NEAR_Y = 40;
+const txtNumeric = s => /\d/.test(s);
+const txtWidth = (s, big) => { let w = 0; for (const ch of s) w += /[ㄱ-ㆎ가-힣一-鿿]/.test(ch) ? 1 : /\d/.test(ch) ? 0.6 : 0.45; return w * (big ? 15 : 12); };   // 대략적인 글자 폭(한글 1em, 숫자 0.6em)
+const txtDrawnY = t => t.y - t.lift - TXT_RISE * (t.t / t.life);   // render 의 그리기 위치와 같은 식
+function txtLift(x, y, w, big, base) {
+  let L = base;
+  for (let guard = 0; guard < 4 * texts.length + 4; guard++) {
+    const drawnY = y - L;
+    let hit = null;
+    for (const n of texts) {
+      if (Math.abs(n.x - x) > Math.max(TXT_NEAR_X, (n.w + w) / 2)) continue;   // 가까운 자리(24) 또는 두 글자 폭이 겹치는 거리
+      const Y = txtDrawnY(n), gap = big || n.big ? 17 : 14;
+      if (Math.abs(drawnY - Y) < gap) { hit = Y - gap - 0.01; break; }   // 0.01: 부동소수 오차로 같은 이웃에 다시 걸리지 않게
+    }
+    if (hit === null) break;
+    L = y - hit;   // 겹치는 이웃 바로 위로 올림
+  }
+  return L;
+}
+function pushText(ev) {
+  const big = !!ev.big, num = txtNumeric(ev.txt), w = txtWidth(ev.txt, big);
+  let base = 0;   // 숫자 없는 상태 글자: 같은 자리에 숫자 글자가 있으면 한 줄 더 위에서 시작
+  if (!num && texts.some(n => n.num && Math.abs(n.x - ev.x) <= TXT_NEAR_X && Math.abs(n.y - ev.y) <= TXT_NEAR_Y)) base = big ? 17 : 14;
+  texts.push({ x: ev.x, y: ev.y, txt: ev.txt, color: ev.color, big, num, w, t: 0, life: TXT_LIFE, dx: (Math.random() - .5) * 10, lift: txtLift(ev.x, ev.y, w, big, base) });
+}
 function handleEvents() {
   const myId = session.myId;
+  const incoming = [];
   for (const ev of session.drainEvents()) {
-    if (ev.type === 'text') { if (!ev.to || ev.to === myId) texts.push({ x: ev.x, y: ev.y, txt: ev.txt, color: ev.color, big: ev.big, t: 0, life: 0.9, dx: (Math.random() - .5) * 10 }); }
+    if (ev.type === 'text') { if (!ev.to || ev.to === myId) incoming.push(ev); }
     else if (ev.type === 'fx') {
       if (ev.fx === 'atkRange' && ev.owner !== myId) continue;   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
       const o = Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 });
@@ -3368,6 +3397,8 @@ function handleEvents() {
     }
     else if (ev.type === 'banner') showBanner(ev.txt, ev.bad, ev.sec);
   }
+  incoming.sort((a, b) => (txtNumeric(b.txt) ? 1 : 0) - (txtNumeric(a.txt) ? 1 : 0));   // 숫자 먼저(안정 정렬: 나머지는 받은 순서)
+  for (const ev of incoming) pushText(ev);
   detectAatroxProcs(W());   // 사신 태세 적중 폭발(상태 변화로 감지)
 }
 
@@ -4250,7 +4281,7 @@ function render(now) {
     ctx.save(); ctx.globalAlpha = 1 - p * p;
     ctx.font = `${t.big ? 700 : 600} ${t.big ? 15 : 12}px ${FONT}`;
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.fillStyle = t.color;
-    const x = t.x + t.dx * p, y = t.y - 24 * p;
+    const x = t.x + t.dx * p, y = t.y - t.lift - TXT_RISE * p;
     ctx.strokeText(t.txt, x, y); ctx.fillText(t.txt, x, y);
     ctx.restore();
   }
