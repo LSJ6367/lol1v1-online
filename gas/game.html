@@ -271,7 +271,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>15021D</b></p>
+    <p class="buildVer">버전 <b>7E0042</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -3067,11 +3067,13 @@ return OnlineSession;
    ===================================================================== */
 const { TICK, MAP_W, MAP_H, HIT_R, SK, BLEED, TURRET_CFG, CHAMPS, SKILL_KEYS, px } = Core;
 const VIEW_H = 576, VIEW_MIN_W = 816;                 // 컨셉 화면 기준 카메라 영역(px)
-const SPRITE_H = { darius: 56, yi: 58, garen: 60, aatrox: 62 };   // 스프라이트 높이(px). 아트록스는 검이 위로 길어서 키가 큼
+const SPRITE_H = { darius: 56, yi: 58, garen: 60, aatrox: 80 };   // 스프라이트 높이(px). 아트록스는 검이 위로 길어서(몸통 72%) 몸통이 가렌과 비슷하게 보이도록 80
 const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39, aatrox: 0.52 };   // 발 위치(가로 비율)
-const SPRITE_H_R = 72, SPRITE_AX_R = 0.64;            // 아트록스 세계의 종결자 모습(날개 달린 형태, 200×220 원본, 발 중심 가로 0.64). 조금 더 크게
+const SPRITE_H_R = 78, SPRITE_AX_R = 0.64;            // 아트록스 세계의 종결자 모습(날개 달린 형태, 200×220 원본, 발 중심 가로 0.64). 조금 더 크게
 /* 챔피언이 지금 그려질 스프라이트 높이·발 위치: 아트록스 R 중에는 날개 모습 */
 const spriteH = c => (c.key === 'aatrox' && c.ar ? SPRITE_H_R : SPRITE_H[c.key]);
+/* 체력바 높이: 아트록스는 검이 머리 위로 길게 솟아 있어서 검 끝이 아니라 머리 근처에 체력바를 둠 */
+const barH = c => (c.key === 'aatrox' ? spriteH(c) * (c.ar ? 0.86 : 0.8) : spriteH(c));
 const spriteAx = c => (c.key === 'aatrox' && c.ar ? SPRITE_AX_R : SPRITE_AX[c.key]);
 const GAR = Core.SKILLS.garen;                        // 가렌 수치(화면 표시·범위용). 규칙은 Core가 계산
 const AQ = Core.SKILLS.aatrox.q;                      // 아트록스 Q 수치(시전 시간·재사용 창, 화면 표시용)
@@ -4712,7 +4714,7 @@ function render(now) {
   // 체력바
   for (const t of w.turrets) if (!t.dead && t.team !== me.team) drawTurretBar(t);
   for (const d of w.dummies) drawDummyBar(d);
-  for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - spriteH(c) - 7); }
+  for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - barH(c) - 7); }
   if (!me.dead && !me.yq) drawSelfInfo(me);   // 나에게만: 명상 바·피해 감소 %, 우주류 검술 남은 시간
 
   // 떠오르는 숫자
