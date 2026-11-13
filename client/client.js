@@ -60,21 +60,37 @@ function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', i
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
 
-const joy = $('#joy'), knob = $('#knob'), atk = $('#atk');
-let joyId = null;
+const joy = $('#joy'), knob = $('#knob'), atk = $('#atk'), joyZone = $('#joyZone');
+/* 떠다니는 조이스틱(A10): 왼쪽 절반(#joyZone)을 누른 자리에 기준점(#joy)을 옮긴다. 기준점은 화면(#hud) 밖으로 못 나가게 가둔다.
+   입력은 누른 자리에서 손가락이 움직인 만큼으로 계산한다. 가둬지지 않으면 누른 자리 = 기준점 중심이라 예전과 같고, 가둬져도 누르자마자 밀리지 않는다. */
+let joyId = null, joyAx = 0, joyAy = 0;   // 조이스틱을 쥔 포인터, 누른 자리(화면 좌표)
+function joyPlace(e) {   // 기준점 중심을 누른 자리에 두되 조이스틱 전체가 #hud 안에 보이도록 가둔다
+  const hr = hud.getBoundingClientRect(), w = joy.offsetWidth, h = joy.offsetHeight;
+  const cx = Math.min(Math.max(e.clientX - hr.left, w / 2), hr.width - w / 2), cy = Math.min(Math.max(e.clientY - hr.top, h / 2), hr.height - h / 2);
+  joy.style.left = `${cx - w / 2}px`; joy.style.bottom = `${hr.height - cy - h / 2}px`;
+}
 function updJoy(e) {
-  const r = joy.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  let dx = e.clientX - cx, dy = e.clientY - cy;
-  const max = r.width / 2 - 8, d = Math.hypot(dx, dy) || 1, k = d > max ? max / d : 1;
+  let dx = e.clientX - joyAx, dy = e.clientY - joyAy;
+  const max = joy.offsetWidth / 2 - 8, d = Math.hypot(dx, dy) || 1, k = d > max ? max / d : 1;
   dx *= k; dy *= k;
   knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
   const m = Math.hypot(dx, dy) / max;
   if (m < 0.18) { input.jx = 0; input.jy = 0; } else { input.jx = dx / Math.hypot(dx, dy); input.jy = dy / Math.hypot(dx, dy); }
 }
-function joyEnd(e) { if (e.pointerId !== joyId) return; joyId = null; input.jx = 0; input.jy = 0; knob.style.transform = 'translate(-50%, -50%)'; }
-joy.addEventListener('pointerdown', e => { joyId = e.pointerId; joy.setPointerCapture(e.pointerId); updJoy(e); e.preventDefault(); });
-joy.addEventListener('pointermove', e => { if (e.pointerId === joyId) updJoy(e); });
-joy.addEventListener('pointerup', joyEnd); joy.addEventListener('pointercancel', joyEnd);
+function joyEnd(e) {
+  if (e.pointerId !== joyId) return;
+  joyId = null; input.jx = 0; input.jy = 0; knob.style.transform = 'translate(-50%, -50%)';
+  joy.classList.remove('on'); joy.style.left = ''; joy.style.bottom = '';   // 기본 자리(왼쪽 아래)로 돌아가며 흐려짐(CSS 전환)
+}
+joyZone.addEventListener('pointerdown', e => {
+  if (joyId !== null) return;   // 조이스틱은 손가락 하나. 두 번째 손가락 터치는 무시(버튼 등은 각자 받음)
+  joyId = e.pointerId; joyAx = e.clientX; joyAy = e.clientY;
+  joyZone.setPointerCapture(e.pointerId);
+  joyPlace(e); joy.classList.add('on'); updJoy(e); e.preventDefault();
+});
+joyZone.addEventListener('pointermove', e => { if (e.pointerId === joyId) updJoy(e); });
+joyZone.addEventListener('pointerup', joyEnd); joyZone.addEventListener('pointercancel', joyEnd);
+joyZone.addEventListener('lostpointercapture', joyEnd);   // 캡처가 풀리면(영역이 숨겨짐 등) 손을 뗀 것으로 본다. 조이스틱이 멈춰 남는 일 방지
 
 let atkId = null;
 atk.addEventListener('pointerdown', e => { atkId = e.pointerId; atk.setPointerCapture(e.pointerId); input.atkTouch = true; atk.classList.add('down'); e.preventDefault(); });

@@ -94,7 +94,12 @@ button { font: inherit; color: inherit; }
 #passiveTip { z-index: 5; position: absolute; top: 72px; right: max(16px, env(safe-area-inset-right, 0px)); width: min(330px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 32px rgba(0,0,0,.55); pointer-events: none; }
 #passiveTip h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 18px; color: var(--gold-hi); }
 #passiveTip p { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--text); }
-#joy { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); bottom: 24px; width: 176px; height: 176px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.05), rgba(10,16,23,.55)); border: 2px solid rgba(200,170,110,.75); touch-action: none; }
+/* 떠다니는 조이스틱(A10): #joyZone = 화면 왼쪽 절반 터치 영역(게임 중에만 #hud 안에 있음). 누른 자리에 #joy 기준점이 옮겨지고, 손을 떼면 왼쪽 아래 기본 자리로 돌아가 흐리게(0.55) 남는다.
+   #joyZone 은 #hud 맨 앞이라 스킬·평타·스탯·패시브·취소 X 가 항상 위에서 먼저 받는다. #joy 는 터치를 받지 않는다(끌기는 영역이 받음). */
+#joyZone { position: absolute; left: 0; top: 60px; bottom: 0; width: 50%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#joy { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); bottom: 24px; width: 176px; height: 176px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.05), rgba(10,16,23,.55)); border: 2px solid rgba(200,170,110,.75); touch-action: none; pointer-events: none; opacity: .55; transition: left .22s ease-out, bottom .22s ease-out, opacity .2s ease-out; }
+#joy.on { opacity: 1; transition: opacity .12s ease-out; }   /* 누르는 동안: 위치는 바로 옮기고(전환 없음), 밝게 */
+@media (prefers-reduced-motion: reduce) { #joy { transition: opacity .2s ease-out; } }
 #knob { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle at 35% 30%, #f5e7bd, #b8964f); box-shadow: 0 2px 8px rgba(0,0,0,.6); pointer-events: none; }
 #actions { position: absolute; right: max(28px, env(safe-area-inset-right, 0px)); bottom: 28px; width: 108px; height: 108px; --k: 1; --sz: 54px; }
 #atk { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border-radius: 50%; cursor: pointer; touch-action: none; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, #3a2c14, #17110a); border: 3px solid var(--gold); box-shadow: 0 4px 18px rgba(0,0,0,.6); --cd: 0; }
@@ -275,6 +280,8 @@ button { font: inherit; color: inherit; }
   <div id="toast" role="status" hidden></div>
 
   <div id="hud" hidden>
+    <div id="joyZone" aria-hidden="true"></div>
+    <div id="joy" role="application" aria-label="이동 조이스틱"><div id="knob"></div></div>
     <button id="statBtn" type="button" aria-label="내 스탯 보기" aria-expanded="false" aria-controls="statPanel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
     </button>
@@ -310,7 +317,6 @@ button { font: inherit; color: inherit; }
       <div class="tools exitRow"><button type="button" id="tReselect" class="wide">챔피언 다시 선택</button></div>
     </aside>
 
-    <div id="joy" role="application" aria-label="이동 조이스틱"><div id="knob"></div></div>
     <div id="skCancel" hidden aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg><span>여기에 놓으면 취소</span></div>
     <div id="actions">
     <button id="atk" type="button" aria-label="평타">
