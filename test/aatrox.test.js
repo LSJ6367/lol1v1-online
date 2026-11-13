@@ -412,14 +412,14 @@ for (const ang of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
   ok('8 침묵이 끝나면 1단계 시전', a.aq && a.aq.stage === 1); }
 
 // ---------------------------------------------------------------------
-// 9. W·E·R 준비 중: 시전되지 않고 '준비 중' 글자만, 비용·쿨타임 없음
+// 9. (2부에서 바뀜) W·E·R은 구현됨: '준비 중' 글자 없이 시전되고 쿨타임이 시작. 마나는 0 (상세는 aatrox2.test.js)
 // ---------------------------------------------------------------------
 { const { w, a } = mk({ dummy: false });
   lvl(w, a, { w: 1, e: 1, r: 1 });
   Core.drainEvents(w);
   for (const k of ['w', 'e', 'r']) Core.step(w, [cmd('cast', 'p1', { skill: k, ang: 0 })]);
-  ok('9 W·E·R 시전 → 준비 중 글자', texts(w).filter(t => t === '준비 중').length === 3, texts(w).join(','));
-  ok('9 W·E·R 시전 뒤 쿨타임·마나·상태 변화 없음', a.cd.w === 0 && a.cd.e === 0 && a.cd.r === 0 && a.mana === 0 && !a.cast && !a.aq); }
+  ok('9 W·E·R 시전 → 준비 중 글자 없음', texts(w).filter(t => t === '준비 중').length === 0, texts(w).join(','));
+  ok('9 W·E·R 시전 → 쿨타임 시작, 마나 0, 시전 상태 없음', a.cd.w > 0 && a.cd.e > 0 && a.cd.r > 0 && a.mana === 0 && !a.cast && !a.aq); }
 
 // ---------------------------------------------------------------------
 // 10. 흡혈 × 0.33 (광역) · 패시브 흡혈 · 결정성
@@ -484,7 +484,7 @@ for (const ang of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
   lvl(w, a, { q: 1 });
   ok('12 쿨타임 0이면 Q 단계 표시 1', Core.aatroxQStage(a) === 1);
   ok('12 Q 최대 레벨 5, W·E 5, R 1', Core.SKILLS.aatrox.q.max === 5 && Core.SKILLS.aatrox.w.max === 5 && Core.SKILLS.aatrox.e.max === 5 && Core.SKILLS.aatrox.r.max === 1);
-  ok('12 프로토콜: aatrox 선택 가능, 버전 11', P.CHAMP_KEYS.includes('aatrox') && P.VERSION === 11, P.VERSION); }
+  ok('12 프로토콜: aatrox 선택 가능, 버전 12', P.CHAMP_KEYS.includes('aatrox') && P.VERSION === 12, P.VERSION); }
 
 { const play = () => {
     const { w, a, d } = mk();

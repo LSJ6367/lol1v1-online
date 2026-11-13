@@ -274,7 +274,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>2473D9</b></p>
+    <p class="buildVer">버전 <b>2C9BF5</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -510,9 +510,18 @@ const SKILLS = {
                sdmg: [21.9, 54.7, 87.5, 120.3, 153.1], sratio: [1.31, 1.48, 1.64, 1.8, 1.97] },
          s3: { off: 180, r: 300, sweetR: 200, dmg: [15, 37.5, 60, 82.5, 105], ratio: [0.9, 1.01, 1.125, 1.24, 1.35],
                sdmg: [26.25, 65.63, 105, 144.38, 183.75], sratio: [1.575, 1.77, 1.97, 2.17, 2.36] } },
-    w: { name: '준비 중', max: 5, mana: [0, 0, 0, 0, 0], cd: [0, 0, 0, 0, 0] },   // 다음 단계에서 구현. 지금은 시전되지 않음
-    e: { name: '준비 중', max: 5, mana: [0, 0, 0, 0, 0], cd: [0, 0, 0, 0, 0] },
-    r: { name: '준비 중', max: 1, mana: [0], cd: [0] }
+    /* 지옥사슬 (DESIGN_AATROX §2-4, B1~B3). 투사체는 맞은 첫 대상에서 멈춤. 사거리 825는 아트록스 중심에서 투사체 끝까지
+       (대상 히트박스 끝이 그 안에 들어오면 맞음). 충격 지대 = 맞은 위치 중심 사다리꼴: 길이 825, 아트록스 쪽 폭 400, 먼 쪽 폭 700 */
+    w: { name: '지옥사슬', max: 5, mana: [0, 0, 0, 0, 0], cd: [18, 16.5, 15, 13.5, 12],
+         dmg: [30, 40, 50, 60, 70], ratio: 0.4, range: 825, width: 160, speed: 1800,
+         slow: [0.25, 0.275, 0.3, 0.325, 0.35], slowT: 1.5, zoneT: 1.5, pullT: 0.25,
+         zone: { len: 825, wNear: 400, wFar: 700 } },
+    /* 파멸의 돌진 (DESIGN_AATROX §2-5, B4~B7). 흡혈 값은 AATROX E 패시브 기본 + 추가 체력 계수(챔피언·허수아비 대상만) */
+    e: { name: '파멸의 돌진', max: 5, mana: [0, 0, 0, 0, 0], cd: [9, 8, 7, 6, 5],
+         dist: 300, dashT: 0.2, omniBase: 0.16, omniPerBonusHp: 0.00013 },
+    /* 세계의 종결자 (DESIGN_AATROX §2-6, B8~B11). 레벨 상한 1이라 배열의 첫 값만 쓰임. cd 120은 원문에 없는 임시값(B10, 사용자 확인 필요) */
+    r: { name: '세계의 종결자', max: 1, mana: [0], cd: [120, 100, 80],
+         dur: 10, ms: [0.6, 0.8, 1.0], ad: [0.2, 0.3, 0.4], heal: [0.5, 0.75, 1.0], msDecay: 10, takedownExt: 5 }
   }
 };
 /* 가렌 인내심(패시브, DESIGN_GAREN.md G5): 마지막 피해 후 8초가 지나면 초당 최대 체력의 0.5% 연속 회복 */
@@ -593,7 +602,12 @@ function makeChamp(id, key, team) {
     apCd: 0,                                              // 사신 태세 재사용 대기 남은 초
     aq: null,                                             // Q 시전 중 {stage, t, ang, lv, x, y}
     aqNext: 1,                                            // 다음 Q 단계(1~3)
-    aqWin: 0                                              // Q 재사용 창 남은 초(0이면 창 닫힘)
+    aqWin: 0,                                             // Q 재사용 창 남은 초(0이면 창 닫힘)
+    aw: null,                                             // 지옥사슬 투사체 {x, y, ang, dist(날아간 거리, 픽셀), lv}. x,y = 시전 위치
+    awZone: null,                                         // 지옥사슬 충격 지대 {x, y, ang, t, targetId, lv, raw(1차 피해 원값)}
+    ar: null,                                             // 세계의 종결자 {t(경과), dur(지속), msT(이동속도 효과 경과), lv}
+    dash: null,                                           // 파멸의 돌진 중 {t, dir, x0, y0}
+    faceAng: team === 1 ? Math.PI : 0                     // 마지막으로 움직인 방향(라디안). 돌진 기본 방향 (B4)
   };
 }
 function makeDummy(id, team) {
@@ -668,7 +682,9 @@ function dummyDps(w, d) { const from = w.time - 5; let s = 0; for (const h of d.
 /* 챔피언 파생 수치 */
 const buffAD = c => c.might > 0 ? BLEED.buffBase + BLEED.buffPerLvl * (c.level - 1) : 0;
 /* 추가 공격력 = 아이템 등(c.bonus.ad) + 다리우스 패시브 공격력 버프 (기본·레벨로 얻는 공격력은 제외. DESIGN_GAREN.md G1) */
-const bonusAD = c => c.bonus.ad + buffAD(c);
+/* 세계의 종결자 공격력(B8): (기본 + 아이템·버프 추가 공격력, R 제외) × 증가율을 추가 공격력으로 더함 */
+const rBonusAD = c => (c.ar ? (c.stats.ad + c.bonus.ad + buffAD(c)) * SKILLS.aatrox.r.ad[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] : 0);
+const bonusAD = c => c.bonus.ad + buffAD(c) + rBonusAD(c);
 const totalAD = c => c.stats.ad + bonusAD(c);         // 총 공격력 = 기본 + 추가
 const curAD = totalAD;                                // 기존 이름 유지(같은 값)
 const bonusHP = c => c.bonus.hp;
@@ -691,6 +707,8 @@ const curAS = c => { const b = CHAMPS[c.key].b; return b.as * (1 + bonusASPct(c)
 const curMS = c => {
   let m = c.hl > 0 ? c.stats.ms * (1 + SKILLS.yi.r.ms) : c.stats.ms;
   if (c.gqMs > 0) m *= 1 + c.gqMsPct;
+  /* 세계의 종결자 이동속도(원문 §2-6): 발동 직후 증가율에서 10초에 걸쳐 0으로 줄어듦. 지속 시간과 따로 셈 */
+  if (c.ar) m *= 1 + SKILLS.aatrox.r.ms[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] * Math.max(0, 1 - c.ar.msT / SKILLS.aatrox.r.msDecay);
   return m;
 };
 function turretAD(t) {
@@ -739,7 +757,7 @@ function magicMulFor(w, target) {
 function dealFrom(w, c, t, a, opts) {
   const pool0 = t.hp + shieldOf(t);
   const got = hurt(w, t, a);
-  if (c && c.kind === 'champ') omniHeal(w, c, Math.min(got, pool0), !!(opts && opts.aoe));
+  if (c && c.kind === 'champ') omniHeal(w, c, t, Math.min(got, pool0), !!(opts && opts.aoe));
   return got;
 }
 const dealPhys = (w, c, t, raw, opts) => dealFrom(w, c, t, raw * physMulFor(w, t, penPct(c)), opts);
@@ -766,21 +784,34 @@ function gwTakenMul(c) {
 const dealTrue = (w, c, t, raw, opts) => dealFrom(w, c, t, raw, opts);     // 고정 피해: 방어력·마법저항력·관통력 모두 무시
 
 /* 모든 피해 흡혈(DESIGN.md §1-1): 흡혈 = 입힌 피해 × omnivampOf(c) × (광역 ? 0.33 : 1). 최대 체력을 넘지 않음 */
-const omnivampOf = c => (c && c.bonus && c.bonus.omni) || 0;   // 아이템 값 (버프 출처는 아직 없음)
-function omniHeal(w, c, dealt, aoe) {
-  const om = omnivampOf(c);
+/* 흡혈 수치. omnivampOf(c)는 아이템 값만(기존과 같음). 대상 t를 함께 넘기면 그 대상에게 줄 때의 값:
+   아트록스 E 패시브(E 레벨 1 이상)는 챔피언·허수아비에게만 더함(B7). 아이템 흡혈에는 대상 조건 없음 */
+const omnivampOf = (c, t) => {
+  let om = (c && c.bonus && c.bonus.omni) || 0;   // 아이템 값 (버프 출처는 아직 없음)
+  if (t && c && c.key === 'aatrox' && c.sk && c.sk.e > 0 && isChampLike(t)) om += aatroxEOmni(c);
+  return om;
+};
+function omniHeal(w, c, t, dealt, aoe) {
+  const om = omnivampOf(c, t);
   if (!(om > 0) || !(dealt > 0)) return;
-  healChamp(w, c, dealt * om * (aoe ? OMNI_AOE : 1), false);
+  heal(w, c, dealt * om * (aoe ? OMNI_AOE : 1), 'omni');
 }
-/* 챔피언 체력 회복(최대 체력 초과 없음, 죽은 챔피언은 안 됨). 회복된 양을 돌려줌 */
-function healChamp(w, c, amt, big) {
-  if (c.dead || !(amt > 0)) return 0;
+/* 회복 증가(B9): 아트록스 세계의 종결자 중에는 모든 회복 × (1 + 50/75/100%). 그 밖에는 1 */
+const healMul = c => (c && c.ar ? 1 + SKILLS.aatrox.r.heal[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] : 1);
+/* 모든 회복의 단일 입구: 회복량 × healMul(c)을 체력에 더하되 최대 체력은 넘지 않음. 죽은 챔피언은 회복 안 함. 회복된 양을 돌려줌.
+   src별 글자(HEAL_TXT): 흡혈·사신 태세·다리우스 Q는 '+n' 글자, 체력 재생·명상·가렌 인내심은 글자 없음(예전과 같음). 목록에 없는 src는 기본 글자 */
+const HEAL_TXT = { omni: { big: false, dx: 16 }, aatroxP: { big: true, dx: 16 }, dariusQ: { big: true, dx: 0 }, regen: null, yiMed: null, garenP: null };
+function heal(w, c, amt, src) {
+  if (!c || c.dead || !(amt > 0)) return 0;
   const before = c.hp;
-  c.hp = Math.min(c.stats.maxHp, c.hp + amt);
+  c.hp = Math.min(c.stats.maxHp, c.hp + amt * healMul(c));
   const gained = c.hp - before;
-  if (Math.round(gained) > 0) text(w, c.x + 16, c.y - px(95), '+' + Math.round(gained), '#6df0a0', !!big);
+  const T = src in HEAL_TXT ? HEAL_TXT[src] : { big: false, dx: 16 };
+  if (T && Math.round(gained) > 0) text(w, c.x + T.dx, c.y - px(95), '+' + Math.round(gained), '#6df0a0', T.big);
   return gained;
 }
+/* 아트록스 E 패시브 흡혈 = 16% + 0.013% × 추가 체력 (B7). 추가 체력은 c.bonus.hp */
+function aatroxEOmni(c) { const E = SKILLS.aatrox.e; return E.omniBase + E.omniPerBonusHp * bonusHP(c); }
 
 /* 처치 처리. killer(챔피언)가 가렌이면 챔피언·허수아비 처치마다 용기 +0.2 (최대 30, DESIGN_GAREN.md G8). 포탑 처치는 세지 않음 */
 function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 true
@@ -793,7 +824,10 @@ function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 tru
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
     t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
     t.gq = null; t.gqMs = 0; t.gqMsPct = 0; t.gw = null; t.ge = null; t.gr = null;   // 가렌 상태도 사라짐(용기는 부활 뒤에도 유지)
+    t.aw = null; t.awZone = null; t.ar = null; t.dash = null;                          // 아트록스 W·R·E 상태도 사라짐(부활하면 초기화)
     if (first) grantCourage(killer);
+    /* 세계의 종결자: 아트록스가 챔피언을 처치하면 지속 +5초, 이동속도 효과 초기화(B11, 허수아비는 제외) */
+    if (first && killer && killer.kind === 'champ' && killer.key === 'aatrox' && killer.ar) { killer.ar.dur += SKILLS.aatrox.r.takedownExt; killer.ar.msT = 0; }
   } else { t.dead = true; t.deadT = 0; t.shot = null; banner(w, '포탑 파괴! 공격 테스트 완료', false, 4); }
   return true;
 }
@@ -859,8 +893,9 @@ function tickStatus(w, u, dt) {
     const p = Math.min(1, pl.t / pl.dur), e = 1 - (1 - p) * (1 - p);
     u.x = pl.fx + (pl.tx - pl.fx) * e; u.y = pl.fy + (pl.ty - pl.fy) * e;
     if (p >= 1) {
-      u.pull = null; u.air = SK.e.air; u.airMax = SK.e.air; u.pendSlow = true; u.homeT = 0;
-      text(w, u.x, u.y - px(60), '공중에 뜸', '#cfe8ff');
+      u.pull = null; u.homeT = 0;
+      /* 다리우스 E 끌림은 끝나면 공중에 뜨고 둔화. 아트록스 W 끌림(noAir)은 공중에 뜨지도 둔화되지도 않음(B2) */
+      if (!pl.noAir) { u.air = SK.e.air; u.airMax = SK.e.air; u.pendSlow = true; text(w, u.x, u.y - px(60), '공중에 뜸', '#cfe8ff'); }
     }
   }
   if (u.air > 0) { u.air = Math.max(0, u.air - dt); if (u.air <= 0 && u.pendSlow) { u.pendSlow = false; addSlow(u, SK.e.slow, SK.e.slowT); } }
@@ -1109,7 +1144,7 @@ function castGaren(w, c, k, say) {
 }
 
 /* ---------------------------------------------------------------------
-   아트록스 (DESIGN_AATROX.md §2, 원문 docs/spec/aatrox.md). 이번 범위: 패시브·Q. W·E·R은 준비 중
+   아트록스 (DESIGN_AATROX.md §2, 원문 docs/spec/aatrox.md). 패시브·Q(1부), W·E·R(2부 §2-4~2-6)
    --------------------------------------------------------------------- */
 /* 사신 태세 적중(준비된 평타): 대상 최대 체력 × (4 + 6/17 × (L-1))% 마법 피해(마법 저항 적용), 그 피해의 100% 회복, 재사용 22초 */
 function aatroxProc(w, c, t) {
@@ -1118,7 +1153,7 @@ function aatroxProc(w, c, t) {
   const pool0 = t.hp + shieldOf(t);
   const got = dealMagic(w, c, t, raw);                    // 흡혈은 dealMagic 안에서 따로 처리(평타 피해이므로 광역 아님)
   text(w, t.x + 12, t.y - px(70), got < 10 ? got.toFixed(1) : got.toFixed(0), '#c9a2ff', true);
-  healChamp(w, c, Math.min(got, pool0) * P.heal, true);   // 회복 = 체력+보호막에 실제로 들어간 마법 피해의 100%
+  heal(w, c, Math.min(got, pool0) * P.heal, 'aatroxP');   // 회복 = 체력+보호막에 실제로 들어간 마법 피해의 100% (세계의 종결자 중에는 ×(1+회복 증가))
   c.apCd = P.cd;
 }
 
@@ -1191,14 +1226,141 @@ function aatroxQStage(c) {
   if (c.aqWin > 0) return c.aqNext;
   return c.cd.q > EPS ? 0 : 1;
 }
-/* Q 누르기: 단계 결정 → 시전 시작(0.6초). W·E·R은 아직 없음 */
-function castAatrox(w, c, k, ang, say) {
-  if (c.aq) return;                                       // 시전 중(0.6초)에는 아무 스킬도 안 됨
-  if (k !== 'q') { say('준비 중'); return; }
-  const stage = aatroxQStage(c);
-  if (!stage) { say('재사용 대기 중'); return; }
-  if (!Number.isFinite(ang)) ang = c.facing < 0 ? Math.PI : 0;
-  startAatroxQ(w, c, stage, ang);
+/* 아트록스 스킬 시전 (Q는 단계·재사용 창(A7). W·R은 Q 시전 중 불가. E는 Q 시전 중에도 가능(B5)) */
+function castAatrox(w, c, k, ang, aimed, say) {
+  if (k === 'q') {
+    if (c.aq) return;                                     // Q 시전 중(0.6초)에는 Q 재시전 불가
+    const stage = aatroxQStage(c);
+    if (!stage) { say('재사용 대기 중'); return; }
+    if (!Number.isFinite(ang)) ang = c.facing < 0 ? Math.PI : 0;
+    startAatroxQ(w, c, stage, ang);
+    return;
+  }
+  if (k === 'e') {                                        // 파멸의 돌진: Q 시전 중·W 비행 중·R 중에도 가능(B5). 쿨타임만 막음
+    if (c.cd.e > 0) { say('재사용 대기 중'); return; }
+    startAatroxE(w, c, aatroxDashDir(c, ang, aimed));
+    return;
+  }
+  if (c.aq) return;                                       // 다르킨의 검 시전 중(0.6초)에는 지옥사슬·세계의 종결자 불가
+  if (k === 'w') {
+    if (c.cd.w > 0) { say('재사용 대기 중'); return; }
+    if (!Number.isFinite(ang)) ang = c.facing < 0 ? Math.PI : 0;
+    startAatroxW(w, c, ang);
+    return;
+  }
+  if (c.cd.r > 0) { say('재사용 대기 중'); return; }      // 세계의 종결자(즉시 시전, 대상 없음)
+  startAatroxR(w, c);
+}
+
+/* 파멸의 돌진 시작(B4, B6): 방향은 시전 시점에 고정. 평타·평타 추적은 취소. 쿨타임은 시전 즉시 시작 */
+function startAatroxE(w, c, dir) {
+  c.atk = null; cancelChase(c);
+  c.cd.e = skCd(c, 'e');
+  c.dash = { t: 0, dir, x0: c.x, y0: c.y };
+  c.faceAng = dir;
+  c.facing = Math.cos(dir) < 0 ? -1 : 1;
+}
+/* 돌진 방향(B4): 스킬 버튼을 끌어서 조준했을 때(aimed + 유한한 ang) > 조이스틱을 쥐고 있을 때 그 방향 > 마지막으로 움직인 방향(faceAng) */
+function aatroxDashDir(c, ang, aimed) {
+  if (aimed && Number.isFinite(ang)) return ang;
+  if (c.in.mx || c.in.my) return Math.atan2(c.in.my, c.in.mx);
+  return c.faceAng;
+}
+/* 돌진 한 틱: 0.2초 동안 300유닛을 고르게 이동. 벽은 일반 이동과 같이 미끄러짐(stepMove). 완전히 막히면 거기서 끝남 */
+function aatroxDashTick(w, c, dt) {
+  const D = c.dash, E = SKILLS.aatrox.e;
+  D.t += dt;
+  const sp = px(E.dist) * dt / E.dashT;
+  const moved = stepMove(w, c, Math.cos(D.dir) * sp, Math.sin(D.dir) * sp);
+  if (!moved || D.t >= E.dashT - EPS) {
+    c.dash = null;
+    fx(w, { fx: 'aeDash', owner: c.id, x0: D.x0, y0: D.y0, x1: c.x, y1: c.y });
+  }
+}
+
+/* 지옥사슬 시전(시전 0초, B3): 투사체를 시전 위치에서 ang 방향으로 쏨. 쿨타임은 시전 즉시 */
+function startAatroxW(w, c, ang) {
+  c.atk = null; cancelChase(c);
+  c.cd.w = skCd(c, 'w');
+  c.facing = Math.cos(ang) < 0 ? -1 : 1;
+  c.aw = { x: c.x, y: c.y, ang, dist: 0, lv: c.sk.w };
+  fx(w, { fx: 'awFire', owner: c.id, x: c.x, y: c.y, ang });
+}
+/* 지옥사슬 투사체 한 틱(B1, B3). 이번 틱에 지나는 구간(길이 = 한 틱 이동, 폭 160)과 대상 히트박스가 겹치는 챔피언·허수아비 중
+   가장 앞(중심 투영이 가장 가까운) 하나에 적중. 벽은 무시. 사거리 825 끝까지 맞은 대상이 없으면 빗나감.
+   구간은 평평한 끝(사각형)으로 봄: 끝이 둥글면 사거리 825 밖 80유닛까지 닿아 원문 사거리와 맞지 않음 */
+function awTick(w, c, dt) {
+  const P = c.aw, W = SKILLS.aatrox.w;
+  const maxD = px(W.range), d0 = P.dist, d1 = Math.min(maxD, d0 + px(W.speed) * dt);
+  const ca = Math.cos(P.ang), sa = Math.sin(P.ang), hw = px(W.width / 2);
+  let best = null, bestS = Infinity;
+  for (const u of enemiesOf(w, c)) {
+    if (!isChampLike(u)) continue;
+    const dx = u.x - P.x, dy = u.y - P.y;
+    const s = dx * ca + dy * sa, p = -dx * sa + dy * ca;          // 투사체 축 위치 · 옆 거리
+    const ds = Math.max(d0 - s, 0, s - d1), dp = Math.max(Math.abs(p) - hw, 0), r = px(u.r);
+    if (ds * ds + dp * dp <= r * r && s < bestS) { best = u; bestS = s; }
+  }
+  if (best) { c.aw = null; awHit(w, c, best, P.lv, P.ang); return; }
+  if (d1 >= maxD - EPS) {
+    fx(w, { fx: 'awMiss', owner: c.id, x: P.x + ca * d1, y: P.y + sa * d1, ang: P.ang });
+    c.aw = null;
+    return;
+  }
+  P.dist = d1;
+}
+/* 지옥사슬 첫 적중(B3): 물리 피해 dmg + 0.4 × 총 공격력(단일, 흡혈 100%), 둔화(강인함 적용), 사신 태세 재사용 -2초.
+   살아 있으면 충격 지대 생성(1.5초 뒤 판정, awZoneTick) */
+function awHit(w, c, t, lv, ang) {
+  const W = SKILLS.aatrox.w, i = lv - 1;
+  const raw = W.dmg[i] + W.ratio * totalAD(c);
+  const v = dealPhys(w, c, t, raw);
+  fx(w, { fx: 'awHit', x: t.x, y: t.y, targetId: t.id });
+  text(w, t.x - 10, t.y - px(50), v < 10 ? v.toFixed(1) : v.toFixed(0), '#ffa04a', true);
+  if (!t.dead) addSlow(t, W.slow[i], W.slowT);
+  aatroxCdr(c, AATROX_PASSIVE.cdrHit);
+  settle(w, t, c);
+  if (!t.dead) {
+    c.awZone = { x: t.x, y: t.y, ang, t: 0, targetId: t.id, lv, raw };
+    fx(w, { fx: 'awZone', owner: c.id, x: t.x, y: t.y, ang, life: W.zoneT });
+  }
+}
+/* 충격 지대 한 틱(B2). 1.5초가 끝나는 순간 대상이 살아 있고 대상 지정 가능하고 중심이 지대 안이면 같은 피해(둔화 없음, 사신 태세 -2초)
+   후 지대 중심으로 0.25초 끌려감(공중에 뜨지 않음). 아니면 아무 일도 없음. 지대는 어느 쪽이든 사라짐 */
+function awZoneTick(w, c, dt) {
+  const Z = c.awZone, W = SKILLS.aatrox.w;
+  Z.t += dt;
+  if (Z.t < W.zoneT - EPS) return;
+  c.awZone = null;
+  const t = unitOf(w, Z.targetId);
+  if (!t || t.dead || t.untarget || !pointInConvex(t.x, t.y, aatroxWZone(Z.x, Z.y, Z.ang))) return;
+  const v = dealPhys(w, c, t, Z.raw);
+  text(w, t.x - 10, t.y - px(50), v < 10 ? v.toFixed(1) : v.toFixed(0), '#ffa04a', true);
+  aatroxCdr(c, AATROX_PASSIVE.cdrHit);
+  settle(w, t, c);
+  if (t.dead) return;
+  const dest = safePoint(t, { x: Z.x, y: Z.y }, isWalk);
+  t.pull = { t: 0, dur: W.pullT, fx: t.x, fy: t.y, tx: dest.x, ty: dest.y, src: c.id, noAir: true };
+  t.pendSlow = false; t.air = 0;
+  fx(w, { fx: 'awPull', x: dest.x, y: dest.y, targetId: t.id });
+}
+/* 충격 지대 꼭짓점 4개(월드 픽셀, [x, y]). (x, y) = 맞은 위치 = 지대 가운데. ang = 사슬 방향.
+   길이 825 중 아트록스 쪽(뒤) 짧은 변 폭 400, 먼 쪽(앞) 긴 변 폭 700. 순서: 뒤 한쪽 → 앞 한쪽 → 앞 반대쪽 → 뒤 반대쪽 */
+function aatroxWZone(x, y, ang) {
+  const Z = SKILLS.aatrox.w.zone, cs = Math.cos(ang), sn = Math.sin(ang);
+  const P = (f, s) => [x + px(f) * cs - px(s) * sn, y + px(f) * sn + px(s) * cs];
+  const L = Z.len / 2, hn = Z.wNear / 2, hf = Z.wFar / 2;
+  return [P(-L, -hn), P(L, -hf), P(L, hf), P(-L, hn)];
+}
+/* 사신 태세 재사용 대기 감소(준비된 상태가 아니면 0 아래로 내리지 않음). 평타·스킬 적중 공통 */
+function aatroxCdr(c, sec) { if (c.apCd > 0) c.apCd = Math.max(0, c.apCd - sec); }
+
+/* 세계의 종결자 발동(즉시 시전, 대상 없음). 지속 10초, 이동속도 효과는 10초에 걸쳐 줄어듦. 쿨타임은 시전 즉시 */
+function startAatroxR(w, c) {
+  c.atk = null; cancelChase(c);
+  c.cd.r = skCd(c, 'r');
+  c.ar = { t: 0, dur: SKILLS.aatrox.r.dur, msT: 0, lv: c.sk.r };
+  fx(w, { fx: 'arStart', owner: c.id });
 }
 function startAatroxQ(w, c, stage, ang) {
   const Q = SKILLS.aatrox.q;
@@ -1217,6 +1379,7 @@ function cancelAatroxQ(c) {
 }
 function aatroxQTick(w, c, dt) {
   const A = c.aq;
+  A.x = c.x; A.y = c.y;            // B5: 판정 위치 = 판정 순간의 아트록스 위치(돌진 중이면 따라 움직임). 방향은 시전 때 고정
   A.t += dt;
   if (A.t < SKILLS.aatrox.q.cast - EPS) return;
   c.aq = null;
@@ -1255,7 +1418,7 @@ function airUp(w, u, sec) {
   text(w, u.x, u.y - px(60), '공중에 뜸', '#cfe8ff');
 }
 
-function castSkill(w, c, k, ang) {
+function castSkill(w, c, k, ang, aimed) {
   if (c.dead || !skillsOf(c) || !SKILL_KEYS.includes(k)) return;
   const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
   const lv = c.sk[k];
@@ -1263,7 +1426,7 @@ function castSkill(w, c, k, ang) {
   if (!lv) { say('스킬 레벨 0 · ▲로 레벨업'); return; }
   if (c.cast || c.gr) return;                         // 시전 중(다리우스·마스터 이 시전, 가렌 궁극기)에는 다른 스킬 불가
   if (c.silence) { say('침묵', '#c9a2ff'); return; }   // 침묵: 시전 불가(마나·쿨타임 소모 없음). 레벨업은 위에서처럼 가능
-  if (c.key === 'aatrox') { castAatrox(w, c, k, ang, say); return; }   // 아트록스 Q 단계·재사용 창(A7, 쿨타임 검사 포함). W·E·R은 준비 중
+  if (c.key === 'aatrox') { castAatrox(w, c, k, ang, !!aimed, say); return; }   // 아트록스: Q 단계·재사용 창(A7), W·E·R 쿨타임은 castAatrox가 검사
   if (k === 'w' && c.wBuff) { say('이미 강화됨'); return; }   // 강화 중에는 W 쿨타임이 멈춰 있으므로 쿨타임 검사보다 먼저 봄
   if (c.cd[k] > 0) { say('재사용 대기 중'); return; }
   if (c.key === 'yi') { castYi(w, c, k, say); return; }
@@ -1310,8 +1473,7 @@ function doDecimate(w, c, lv) {   // 학살: 도끼 자루(안쪽) / 도끼날(�
     settle(w, t);
   }
   if (bladeChamps > 0 && !c.dead) {
-    const heal = (c.stats.maxHp - c.hp) * Math.min(q.healMax, q.heal * bladeChamps);
-    if (heal > 0) { c.hp += heal; text(w, c.x, c.y - px(95), '+' + heal.toFixed(0), '#6df0a0', true); }
+    heal(w, c, (c.stats.maxHp - c.hp) * Math.min(q.healMax, q.heal * bladeChamps), 'dariusQ');
   }
 }
 
@@ -1406,8 +1568,7 @@ function yiMedTick(w, c, dt) {
   c.mana -= drain;
   m.t += dt; m.stackT += dt;
   if (m.stackT >= 1 - EPS) { m.stackT -= 1; c.dstack = Math.min(3, c.dstack + 1); }
-  const heal = (S.heal[m.lv - 1] + S.apRatio * c.stats.ap) * (1 + (c.stats.maxHp - c.hp) / c.stats.maxHp) * dt;
-  c.hp = Math.min(c.stats.maxHp, c.hp + heal);
+  heal(w, c, (S.heal[m.lv - 1] + S.apRatio * c.stats.ap) * (1 + (c.stats.maxHp - c.hp) / c.stats.maxHp) * dt, 'yiMed');
   if (m.t >= S.dur - EPS) endMed(c);
 }
 
@@ -1423,7 +1584,7 @@ function chaseTick(w, c, locked) {
   if (c.in.mx || c.in.my) { cancelChase(c); return null; }                         // 조이스틱: 취소(버튼을 뗄 때까지 재추적 금지)
   if (locked || !t || t.dead || t.untarget || edgeDist(t, c) > px(CHASE.search + 300)) { c.chase = null; return null; }
   if (edgeDist(t, c) <= atkRange(c)) {
-    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
+    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && !c.dash) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
     return { dx: 0, dy: 0 };
   }
   const dx = t.x - c.x, dy = t.y - c.y, d = Math.hypot(dx, dy) || 1;
@@ -1433,14 +1594,15 @@ function chaseTick(w, c, locked) {
 function updateChamp(w, c, dt) {
   if (c.dead) { c.respawn -= dt; if (c.respawn <= 0) respawn(w, c); return; }
   const s = c.stats;
-  c.hp = Math.min(s.maxHp, c.hp + s.regen / 5 * dt);              // 체력 재생: 5초당 수치만큼
+  heal(w, c, s.regen / 5 * dt, 'regen');                          // 체력 재생: 5초당 수치만큼 (세계의 종결자 중 ×(1+회복 증가))
   c.mana = Math.min(s.maxMana, c.mana + s.manaRegen / 5 * dt);    // 마나 재생: 5초당 수치만큼
   c.might = Math.max(0, c.might - dt);
   c.medPost = Math.max(0, c.medPost - dt);
   c.apCd = Math.max(0, c.apCd - dt);                              // 사신 태세 재사용 대기(실제 시간)
   if (c.aqWin > 0) { c.aqWin -= dt; if (c.aqWin <= EPS) { c.aqWin = 0; c.aqNext = 1; } }   // Q 재사용 창 3초: 끝나면 다음은 1단계
+  if (c.ar) { c.ar.t += dt; c.ar.msT += dt; if (c.ar.t >= c.ar.dur - EPS) c.ar = null; }   // 세계의 종결자 지속 10초(처치 시 +5초). 이동속도 효과 경과
   c.persT += dt;                                                  // 인내심: 마지막 피해 후 경과 시간(피해 받을 때 0으로)
-  if (c.key === 'garen' && c.persT >= GAREN_PASSIVE.idle - EPS) c.hp = Math.min(s.maxHp, c.hp + s.maxHp * GAREN_PASSIVE.perSec * dt);
+  if (c.key === 'garen' && c.persT >= GAREN_PASSIVE.idle - EPS) heal(w, c, s.maxHp * GAREN_PASSIVE.perSec * dt, 'garenP');
   if (c.gq) { c.gq.t -= dt; if (c.gq.t <= 0) c.gq = null; }          // 결정타 강화 4.5초 (평타가 나가면 strike에서 소모)
   c.gqMs = Math.max(0, c.gqMs - dt);                              // 결정타 이동속도 남은 시간
   if (c.gw) { c.gw.t -= dt; if (c.gw.t <= 0) c.gw = null; }          // 용기 피해 감소 4초
@@ -1449,7 +1611,7 @@ function updateChamp(w, c, dt) {
 
   // 공중에 뜸 / 끌려오는 중: 하려던 모든 행동이 취소되고 아무 행동도 할 수 없음 (피격은 그대로)
   const locked = c.air > 0 || !!c.pull;
-  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; cancelAatroxQ(c); }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소, 아트록스 Q 시전 취소(피해 없음, 같은 단계 재사용 창 새로 열림, A6)
+  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; cancelAatroxQ(c); c.dash = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소, 아트록스 Q 시전 취소(피해 없음, 같은 단계 재사용 창 새로 열림, A6), 돌진 끊김
   // 쿨타임. 다리우스 W는 강화(wBuff)가 켜져 있는 동안 멈춰 있다가 강화 평타가 나간 뒤부터 흐름
   // 가렌 Q는 결정타 강화(gq) 동안 멈춰 있다가 강화가 끝나면(평타 또는 만료) 흐름
   for (const k of SKILL_KEYS) if (!(k === 'w' && c.wBuff) && !(k === 'q' && c.gq)) c.cd[k] = Math.max(0, c.cd[k] - dt);
@@ -1473,8 +1635,10 @@ function updateChamp(w, c, dt) {
   if (c.ge) garenSpinTick(w, c, dt);
   if (c.gr && !c.dead) garenRTick(w, c, dt);
   if (c.dead) return;
-  // 아트록스 Q: 0.6초 시전 뒤 판정
+  // 아트록스 Q: 0.6초 시전 뒤 판정. 지옥사슬 투사체 비행과 충격 지대(1.5초 뒤 판정)
   if (c.aq) aatroxQTick(w, c, dt);
+  if (c.aw) awTick(w, c, dt);
+  if (c.awZone) awZoneTick(w, c, dt);
 
   // 마스터 이: 일격필살 진행 · 2연속 두 번째 타격 대기 · 명상 · 우주류/최후의 전사 타이머
   if (c.yq) yiAlphaTick(w, c, dt);
@@ -1488,19 +1652,23 @@ function updateChamp(w, c, dt) {
   c.noTgt = Math.max(0, c.noTgt - dt);
 
   // 이동 (평타 추적 중이면 이번 틱 방향은 대상 쪽. 추적이 사거리 안에서 평타를 시작하면 아래 잠금에 의해 멈춤)
+  // 파멸의 돌진(아트록스 E): 돌진 중에는 이번 틱 이동이 돌진 한 틱뿐(조이스틱 무시). 끝나는 틱에도 일반 이동은 하지 않음
+  const dashing = !!c.dash;
+  if (dashing) aatroxDashTick(w, c, dt);
   let mx = c.in.mx, my = c.in.my;
   if (c.chase) { const ch = chaseTick(w, c, locked); if (ch) { mx = ch.dx; my = ch.dy; } }
-  if (c.atk || c.cast || locked || c.yq || c.med || c.gr || c.aq) { mx = 0; my = 0; }   // 평타·시전·일격필살·명상·데마시아의 정의 시전 중, 공중에 뜬 동안에는 멈춤 (심판 회전 중에는 이동 가능)
+  if (dashing || c.atk || c.cast || locked || c.yq || c.med || c.gr || c.aq) { mx = 0; my = 0; }   // 돌진·평타·시전·일격필살·명상·데마시아의 정의 시전 중, 공중에 뜬 동안에는 멈춤 (심판 회전 중에는 이동 가능)
   c.moving = !!(mx || my);
   if (c.moving) {
     const sp = px(curMS(c)) * (1 - (c.slow ? c.slow.pct : 0)) * dt;
+    c.faceAng = Math.atan2(my, mx);                    // 마지막으로 움직인 방향(B4): 파멸의 돌진 기본 방향
     stepMove(w, c, mx * sp, my * sp);
     if (Math.abs(mx) > 0.15) c.facing = mx < 0 ? -1 : 1;
   }
 
   // 평타 입력
   if (!c.in.atk) c.chaseHold = false;                  // 평타 버튼을 떼면 재추적 금지 해제
-  if (!locked && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && c.in.atk) {   // 가렌: 심판 회전·궁극기 시전 중에는 평타·자동 추적 시작 안 함(G11)
+  if (!locked && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && !c.dash && c.in.atk) {   // 가렌: 심판 회전·궁극기 시전 중에는 평타·자동 추적 시작 안 함(G11). 아트록스 돌진 중에도 시작 안 함
     const t = c.chase ? null : targetInRange(w, c);   // 추적 중에는 쫓는 챔피언만 노림(가는 길에 포탑·허수아비가 사거리에 들어와도 무시)
     if (c.chase) { /* chaseTick이 처리 */ }
     else if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
@@ -1596,7 +1764,7 @@ function applyCommand(w, cmd) {
       c.in.atk = !!cmd.atk;
       break;
     }
-    case 'cast': castSkill(w, c, cmd.skill, Number(cmd.ang)); break;
+    case 'cast': castSkill(w, c, cmd.skill, Number(cmd.ang), !!cmd.aimed); break;
     case 'levelup': levelUp(w, c, cmd.skill); break;
     case 'dev': if (w.devMode) devOp(w, c, cmd); break;
   }
@@ -1628,8 +1796,10 @@ return {
   GAREN_PASSIVE, garenRTarget,
   // 피해 · 흡혈 (DESIGN.md §1-1): 가해자와 광역 여부를 넘김. 마법 피해(마법 저항 적용)
   dealPhys, dealMagic, dealTrue, omnivampOf, OMNI_AOE,
-  // 아트록스 (DESIGN_AATROX.md §2): 사신 태세 상수, Q 도형(화면과 같은 값), Q 단계(버튼 표시)
-  AATROX_PASSIVE, aatroxQShape, aatroxQStage, atkRange
+  // 회복 (DESIGN_AATROX §2-6, B9): 모든 회복의 단일 입구와 회복 배율(세계의 종결자 중 1 + 회복 증가)
+  heal, healMul,
+  // 아트록스 (DESIGN_AATROX.md §2): 사신 태세 상수, Q 도형(화면과 같은 값), Q 단계(버튼 표시), W 충격 지대 꼭짓점, E 흡혈 값
+  AATROX_PASSIVE, aatroxQShape, aatroxQStage, aatroxWZone, aatroxEOmni, aatroxDashDir, atkRange
 };
 });
 
@@ -1658,7 +1828,7 @@ return {
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 11;   // 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 12;   // 12: 아트록스 W(지옥사슬)·E(파멸의 돌진)·R(세계의 종결자) 추가, 돌진 조준 표시 aimed(cast 원소) 추가 / 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -1697,7 +1867,7 @@ const DEV_OPS = ['air', 'ready', 'time', 'spawn', 'turretReset', 'dummyReset', '
    ─────────────────────────────────────────────────────────────────── */
 
 /* acts 원소 (한 프레임에 여러 개 가능, 최대 4개)
-     {k:'cast', skill, ang}     스킬 시전
+     {k:'cast', skill, ang, aimed?}  스킬 시전. aimed: true면 스킬 버튼을 끌어서 조준한 것(돌진 방향에 ang 사용)
      {k:'lv',   skill}          스킬 레벨업
      {k:'dev',  op, sec?}       테스트 도구(테스트 모드 방에서만 서버가 적용) */
 
@@ -1715,7 +1885,7 @@ function sanitizeFrame(f, allowDev) {
     const acts = [];
     for (const x of f.acts.slice(0, 4)) {
       if (!x || typeof x !== 'object') continue;
-      if (x.k === 'cast' && SKILLS.includes(x.skill)) acts.push({ k: 'cast', skill: x.skill, ang: r3(isNum(x.ang) ? x.ang : 0) });
+      if (x.k === 'cast' && SKILLS.includes(x.skill)) { const a = { k: 'cast', skill: x.skill, ang: r3(isNum(x.ang) ? x.ang : 0) }; if (x.aimed === true) a.aimed = true; acts.push(a); }
       else if (x.k === 'lv' && SKILLS.includes(x.skill)) acts.push({ k: 'lv', skill: x.skill });
       else if (x.k === 'dev' && allowDev && DEV_OPS.includes(x.op)) {
         const d = { k: 'dev', op: x.op };
@@ -1732,7 +1902,7 @@ function sanitizeFrame(f, allowDev) {
 function frameToCmds(id, f) {
   const cmds = [{ type: 'input', id, mx: f.mx, my: f.my, atk: !!f.a }];
   if (f.acts) for (const x of f.acts) {
-    if (x.k === 'cast') cmds.push({ type: 'cast', id, skill: x.skill, ang: x.ang });
+    if (x.k === 'cast') cmds.push(Object.assign({ type: 'cast', id, skill: x.skill, ang: x.ang }, x.aimed ? { aimed: true } : {}));
     else if (x.k === 'lv') cmds.push({ type: 'levelup', id, skill: x.skill });
     else if (x.k === 'dev') cmds.push(Object.assign({ type: 'dev', id, op: x.op }, x.sec != null ? { sec: x.sec } : {}));
   }
