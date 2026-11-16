@@ -39,8 +39,9 @@ class Room {
     if (this.players.length >= 2) return 'room_full';
     if (this.state !== 'select') return 'bad_state';
     const team = this.players.some(p => p.team === 0) ? 1 : 0;
+    /* set: 시작 아이템 세트. setExplicit: 직접 고른 적이 있는지. 아직 안 골랐으면 챔피언을 고를 때마다 첫 번째 선택지로 맞춤 */
     this.players.push({
-      pid, name, team, champ: 'darius', ready: false, conn,
+      pid, name, team, champ: 'darius', set: Core.startSetOrder('darius')[0], setExplicit: false, ready: false, conn,
       queue: [], lastSeq: 0, lastRecv: 0, rate: []
     });
     return null;
@@ -68,6 +69,20 @@ class Room {
     if (!P.CHAMP_KEYS.includes(champ)) return 'bad_msg';
     if (this.state !== 'select' || p.ready) return 'bad_state';
     p.champ = champ;
+    /* 시작 아이템 규칙: 직접 고른 세트(setExplicit)는 챔피언을 바꿔도 그대로 둔다. 아직 안 골랐으면 새 챔피언의 첫 번째 선택지 */
+    if (!p.setExplicit) p.set = Core.startSetOrder(champ)[0];
+    this.broadcastRoom();
+    return null;
+  }
+
+  /* 시작 아이템 세트 선택: 선택 단계에서, 준비 전에만. 'blade' | 'shield'. 직접 고른 것으로 표시(setExplicit) */
+  pickSet(pid, set) {
+    const p = this.find(pid);
+    if (!p) return 'bad_msg';
+    if (!P.START_SET_KEYS.includes(set)) return 'bad_msg';
+    if (this.state !== 'select' || p.ready) return 'bad_state';
+    p.set = set;
+    p.setExplicit = true;
     this.broadcastRoom();
     return null;
   }
@@ -159,7 +174,7 @@ class Room {
   broadcastRoom() {
     const msg = {
       t: 'room', code: this.code, state: this.state, test: this.test,
-      players: this.players.map(p => ({ pid: p.pid, name: p.name, team: p.team, champ: p.champ, ready: p.ready, online: true }))
+      players: this.players.map(p => ({ pid: p.pid, name: p.name, team: p.team, champ: p.champ, set: p.set, ready: p.ready, online: true }))
     };
     if (this.state === 'countdown') {
       msg.countdown = this._shownCount();
@@ -192,7 +207,7 @@ class Room {
   }
 
   _startGame() {
-    const players = this.players.map(p => ({ id: p.pid, key: p.champ, team: p.team }));
+    const players = this.players.map(p => ({ id: p.pid, key: p.champ, team: p.team, set: p.set }));
     this.world = Core.createWorld({ players, dummy: this.test, devMode: this.test });
     for (const p of this.players) { p.queue = []; p.lastSeq = 0; p.lastRecv = 0; p.rate = []; }
     this.gameTick = 0;

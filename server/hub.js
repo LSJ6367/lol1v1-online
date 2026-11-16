@@ -81,6 +81,12 @@ class Hub {
         if (err) this._reply(sess, err);
         return;
       }
+      case 'set': {
+        if (!sess.room) return this._reply(sess, 'bad_state');
+        const err = sess.room.pickSet(sess.pid, m.set);
+        if (err) this._reply(sess, err);
+        return;
+      }
       case 'ready': {
         if (typeof m.on !== 'boolean') return this._reply(sess, 'bad_msg');
         if (!sess.room) return this._reply(sess, 'bad_state');

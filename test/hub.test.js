@@ -122,6 +122,39 @@ test('챔피언 선택·준비 → 카운트다운 방송 → 시작(start: you=
   assert.ok(sa.world.champs.some(c => c.id === 'p1' && c.key === 'yi'));
 });
 
+test('시작 아이템: set 메시지가 방 방송에 반영되고, 시작한 월드의 챔피언에 아이템·추가 체력이 들어감', () => {
+  const hub = new Hub({ countdownSec: 0 });
+  const A = client(hub, 'A'), B = client(hub, 'B');
+  say(hub, A, { t: 'create', test: false });
+  const code = lastOf(A.c, 'room').code;
+  say(hub, B, { t: 'join', code });
+  assert.deepStrictEqual(lastOf(A.c, 'room').players.map(p => p.set), ['blade', 'blade'], '처음 기본 세트(다리우스 첫 선택지)');
+  say(hub, A, { t: 'set', set: 'shield' });
+  assert.strictEqual(lastOf(B.c, 'room').players[0].set, 'shield', 'set 이 방 방송에 반영');
+  say(hub, A, { t: 'set', set: 'nope' });
+  assert.strictEqual(lastOf(A.c, 'error').code, 'bad_msg');
+  say(hub, B, { t: 'pick', champ: 'garen' });
+  assert.strictEqual(lastOf(A.c, 'room').players[1].set, 'shield', '가렌은 아직 안 골랐으니 첫 선택지(방패)');
+  say(hub, B, { t: 'set', set: 'blade' });
+  say(hub, A, { t: 'pick', champ: 'yi' });
+  assert.strictEqual(lastOf(A.c, 'room').players[0].set, 'shield', '직접 고른 세트는 챔피언을 바꿔도 유지');
+  say(hub, A, { t: 'ready', on: true });
+  say(hub, A, { t: 'set', set: 'blade' });
+  assert.strictEqual(lastOf(A.c, 'error').code, 'bad_state', '준비한 뒤에는 세트를 바꿀 수 없음');
+  say(hub, B, { t: 'ready', on: true });                               // countdownSec 0 → 바로 시작
+  const st = lastOf(A.c, 'start');
+  assert.ok(st, '시작');
+  const yi = st.world.champs.find(c => c.id === 'p1'), garen = st.world.champs.find(c => c.id === 'p2');
+  assert.deepStrictEqual(yi.items, ['doranShield'], '방패를 든 마스터 이');
+  assert.strictEqual(yi.bonus.hp, 110);
+  assert.strictEqual(yi.stats.maxHp, Core.calcStats('yi', 6).maxHp + 110, '최대 체력에 +110');
+  assert.strictEqual(yi.hp, yi.stats.maxHp, '시작은 가득');
+  assert.strictEqual(yi.potions, 2);
+  assert.deepStrictEqual(garen.items, ['doranBlade'], '검을 든 가렌');
+  assert.strictEqual(garen.bonus.ad, 10);
+  assert.strictEqual(garen.bonus.omni, 0.025);
+  assert.strictEqual(garen.potions, 2); });
+
 test('게임: 입력 프레임 → 틱마다 진행, 스냅샷 ack 는 단조 증가하고 내 챔피언이 움직임', () => {
   const hub = new Hub({ countdownSec: 0 });
   const A = client(hub, 'A'), B = client(hub, 'B');

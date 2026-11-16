@@ -484,7 +484,7 @@ for (const ang of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
   lvl(w, a, { q: 1 });
   ok('12 쿨타임 0이면 Q 단계 표시 1', Core.aatroxQStage(a) === 1);
   ok('12 Q 최대 레벨 5, W·E 5, R 1', Core.SKILLS.aatrox.q.max === 5 && Core.SKILLS.aatrox.w.max === 5 && Core.SKILLS.aatrox.e.max === 5 && Core.SKILLS.aatrox.r.max === 1);
-  ok('12 프로토콜: aatrox 선택 가능, 버전 13(점화·점멸 추가 뒤)', P.CHAMP_KEYS.includes('aatrox') && P.VERSION === 13, P.VERSION); }
+  ok('12 프로토콜: aatrox 선택 가능, 버전 13 이상(점화·점멸 추가 뒤)', P.CHAMP_KEYS.includes('aatrox') && P.VERSION >= 13, P.VERSION); }
 
 { const play = () => {
     const { w, a, d } = mk();

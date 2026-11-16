@@ -12,7 +12,9 @@ class LocalSession {
     this.online = false;
     this.test = true;
     this.ping = null;
-    this.world = Core.createWorld({ players, dummy: true, devMode: true });
+    /* 시작 아이템 set을 넘기지 않은 플레이어는 챔피언의 첫 번째 선택지(방과 같은 기본값). 넘긴 set은 그대로 */
+    const withSet = players.map(p => (p.set ? p : Object.assign({}, p, { set: Core.startSetOrder(p.key)[0] })));
+    this.world = Core.createWorld({ players: withSet, dummy: true, devMode: true });
     this.queue = []; this.acc = 0; this.alpha = 0; this.prev = {};
   }
   send(cmd) { this.queue.push(cmd); }

@@ -16,6 +16,7 @@
      { type:'input',   id, mx, my, atk }          // 이동 방향(-1~1)과 평타 버튼 상태
      { type:'cast',    id, skill:'q'|'w'|'e'|'r', ang }   // 스킬 시전(ang: 조준 각도, 라디안)
      { type:'spell',   id, spell:'ignite'|'flash', ang?, aimed? }   // 소환사 주문(점화·점멸). ang·aimed는 점멸 방향에만 씀
+     { type:'item',    id, item:'potion' }        // 액티브 아이템 사용(체력 물약). 죽었을 때만 못 씀
      { type:'levelup', id, skill }
      { type:'dev',     id, op, ... }              // 테스트 도구(world.devMode가 true일 때만)
    ===================================================================== */
@@ -158,6 +159,34 @@ const SPELLS = {
 const SPELL_KEYS = ['ignite', 'flash'];
 const EPS = 1e-9;
 
+/* 시작 아이템 (DESIGN_ITEMS.md §1, 원문 docs/spec/items.md). 스탯은 추가치라서 c.bonus에 더하고, 아이템 체력은 최대 체력에도 더함(I2).
+   도란의 검: 공격력 +10 · 체력 +80 · 모든 피해 흡혈 2.5%. 효과 없음.
+   도란의 방패: 체력 +110. 5초마다 체력 4 회복(I3). 챔피언에게 피해를 입으면 8초 동안 체력 20 회복, 초당 2.5(I4).
+   체력 물약(액티브·소모품): 15초 동안 체력 120 회복, 시작 2개(I5). 아이템 목록(c.items)에는 넣지 않고 c.potions로 셈 */
+const ITEMS = {
+  doranBlade: { name: '도란의 검', ad: 10, hp: 80, omni: 0.025 },
+  doranShield: { name: '도란의 방패', hp: 110, regen5: 4, recover: 20, recoverT: 8 },
+  potion: { name: '체력 물약', heal: 120, dur: 15, start: 2 }
+};
+/* 세트 = 패시브 아이템 하나. 체력 물약 2개는 모든 세트에 공통으로 붙음 */
+const START_SETS = { blade: ['doranBlade'], shield: ['doranShield'] };
+/* 선택지 순서(왼쪽이 첫 번째 = 기본 선택). 가렌은 도란의 방패가 첫 번째(DESIGN_ITEMS I1) */
+function startSetOrder(champKey) { return champKey === 'garen' ? ['shield', 'blade'] : ['blade', 'shield']; }
+/* 툴팁용 설명(순수 데이터). active: 액티브(소모품) 여부 */
+const ITEM_INFO = {
+  doranBlade: { active: false, text: '효과 없음' },
+  doranShield: { active: false, text: '5초마다 체력 4 회복. 챔피언에게 피해를 입으면 8초 동안 체력 20 회복.' },
+  potion: { active: true, text: '15초에 걸쳐 체력 120 회복. 마시는 중에는 다시 마실 수 없음.' }
+};
+/* 툴팁용 목록. keys 생략 시 전체. 알 수 없는 키는 빼고, stats는 있는 추가 스탯만({ad, hp, omni}) */
+function itemDefs(keys) {
+  return (keys || Object.keys(ITEMS)).filter(k => ITEMS[k]).map(k => {
+    const d = ITEMS[k], info = ITEM_INFO[k] || {}, stats = {};
+    for (const s of ['ad', 'hp', 'omni']) if (d[s] !== undefined) stats[s] = d[s];
+    return { key: k, name: d.name, active: !!info.active, text: info.text || '', stats };
+  });
+}
+
 /* ---------------------------------------------------------------------
    기본 계산
    --------------------------------------------------------------------- */
@@ -202,8 +231,24 @@ function safePoint(from, to, ok) {
 /* ---------------------------------------------------------------------
    월드 / 유닛 생성
    --------------------------------------------------------------------- */
-function makeChamp(id, key, team) {
+/* 아이템 목록 → 추가 스탯 합(c.bonus). 체력은 최대 체력에도 더함(c.stats.maxHp, I2) */
+function itemBonus(items) {
+  const b = { ad: 0, hp: 0, as: 0, armor: 0, mr: 0, omni: 0 };
+  for (const k of items) { const d = ITEMS[k]; if (d) { b.ad += d.ad || 0; b.hp += d.hp || 0; b.omni += d.omni || 0; } }
+  return b;
+}
+/* 시작 세트 → { items, potions }. 세트가 없거나 모르는 값이면 아무것도 없음(예전 빈 챔피언과 같음 — 기존 수치 테스트가 그대로 맞음).
+   세트를 고르지 않았을 때의 기본값(첫 번째 선택지 = startSetOrder(key)[0])은 방과 혼자 연습 쪽이 채워서 넘긴다 */
+function startKit(set) {
+  if (!Object.prototype.hasOwnProperty.call(START_SETS, set)) return { items: [], potions: 0 };
+  return { items: START_SETS[set].slice(), potions: ITEMS.potion.start };
+}
+/* items·potions·bonus는 그대로 받음. 부활할 때는 있던 값을 넘김(bonus는 그 자리에서 고친 추가 스탯도 유지). 처음에는 bonus를 생략해 items에서 계산 */
+function makeChamp(id, key, team, items, potions, bonus) {
+  bonus = bonus || itemBonus(items);
   const st = calcStats(key, START_LEVEL), sp = SPAWNS[team] || SPAWNS[0];
+  st.maxHp += bonus.hp;                                            // 아이템 체력은 최대 체력에 더함. 시작 체력은 가득
+  for (const k of items) st.regen += (ITEMS[k] && ITEMS[k].regen5) || 0;   // 아이템 재생(도란의 방패 5초당 4)은 체력 재생 수치에 더함 → 체력 재생 경로(I3)와 재생 표시가 같은 값
   return {
     kind: 'champ', id, team, key, level: START_LEVEL, stats: st, r: HIT_R,
     x: sp.x, y: sp.y, hp: st.maxHp, mana: st.maxMana, facing: 1,
@@ -215,7 +260,11 @@ function makeChamp(id, key, team) {
     dead: false, respawn: 0,
     dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0,
     chase: null, chaseHold: false,                    // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
-    bonus: { ad: 0, hp: 0, as: 0, armor: 0, mr: 0, omni: 0 },  // 추가 스탯(아이템 등, 지금은 0). omni = 모든 피해 흡혈(0.2 = 20%). 부활해도 유지(respawn에서 보존)
+    bonus,                                            // 추가 스탯(아이템에서 계산). omni = 모든 피해 흡혈(0.2 = 20%). 부활하면 items에서 다시 계산
+    items: items.slice(),                             // 패시브 아이템 목록(예: ['doranBlade']). 부활해도 유지
+    potions: potions,                                 // 체력 물약 남은 개수. 부활해도 그대로(다시 채우지 않음)
+    potion: null,                                     // 마시는 중인 물약 {t: 경과 초} 또는 null (15초)
+    dsRec: 0,                                         // 도란의 방패 회복 남은 초(피해를 입으면 8로 다시 셈)
     silence: null, shields: [], tenSrc: [], shred: null,  // 침묵 {t} · 보호막 [{amt,t,src}] · 강인함 [{pct,t}] · 방어력 감소 {t,pct}
     /* 가렌 상태(다른 챔피언에게는 비활성). 부활하면 courage만 남고 나머지는 초기화 */
     persT: 0,                                             // 마지막으로 피해를 받은 뒤 경과 초(인내심)
@@ -250,7 +299,7 @@ function makeTurret(id, team, x, y) {
 function createWorld(opts) {
   opts = opts || {};
   const w = { time: 0, devT: 0, devMode: opts.devMode !== false, events: [], champs: [], dummies: [], turrets: [] };
-  for (const p of (opts.players || [])) w.champs.push(makeChamp(p.id, p.key, p.team || 0));
+  for (const p of (opts.players || [])) { const kit = startKit(p.set); w.champs.push(makeChamp(p.id, p.key, p.team || 0, kit.items, kit.potions)); }
   w.turrets.push(makeTurret('t_ally', 0, 290, 722), makeTurret('t_foe', 1, 1063, 288));
   if (opts.dummy !== false) w.dummies.push(makeDummy('dummy1', 1));
   return w;
@@ -366,13 +415,22 @@ function physMulFor(w, target, pen) {   // pen: 물리관통력(%). 방어력 �
   return m;
 }
 /* 피해 적용: 피해 감소 → 보호막(먼저 깎임, 고정 피해도) → 남은 피해는 체력. 돌려주는 값과 허수아비 기록은 보호막이 막은 것까지 포함 */
-function hurt(w, t, a, fromTurret) {
-  a *= dmgTakenMul(t, !!fromTurret);      // 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
-  if (a > 0 && t.kind === 'champ') t.persT = 0;   // 인내심: 보호막에 막힌 피해도 포함해서 8초를 다시 셈(DESIGN_GAREN.md G5)
+/* from = 가해자 유닛(챔피언·허수아비·포탑) 또는 null. 포탑이면 명상 피해 감소가 절반, 챔피언이면 도란의 방패가 반응(I4) */
+function hurt(w, t, a, from) {
+  const fromTurret = !!from && from.kind === 'turret';
+  a *= dmgTakenMul(t, fromTurret);        // 피해 감소: 모든 피해 경로(평타·스킬·출혈·포탑)가 여기를 지남
+  if (a > 0 && t.kind === 'champ') {
+    t.persT = 0;                          // 인내심: 보호막에 막힌 피해도 포함해서 8초를 다시 셈(DESIGN_GAREN.md G5)
+    if (from && from.kind === 'champ' && from.team !== t.team) dsHit(t);   // 적 챔피언(점화·과다출혈 포함)에게 받은 피해만. 보호막에 막혀도 받은 것으로 셈
+  }
   const rest = t.shields && t.shields.length ? absorbShield(t, a) : a;
   t.hp = Math.max(0, t.hp - rest);
   if (t.kind === 'dummy') { t.total += a; t.hits.push({ t: w.time, d: a }); t.idle = 0; t.flash = 0.12; }
   return a;
+}
+/* 도란의 방패 회복 시작(I4): 8초 남김. 이미 회복 중이면 처음부터 다시 셈(겹치지 않음). 죽었거나 방패가 없으면 아무 일도 없음 */
+function dsHit(t) {
+  if (!t.dead && t.items && t.items.includes('doranShield')) t.dsRec = ITEMS.doranShield.recoverT;
 }
 /* 마법 피해 배율: 마법 저항력 100/(100+MR). 마법 관통은 아직 없음(포탑 감소는 물리와 같게 적용) */
 function magicMulFor(w, target) {
@@ -385,7 +443,7 @@ function magicMulFor(w, target) {
    opts.noOmni: 흡혈 없음(점화 틱 — DESIGN_SPELLS S2) */
 function dealFrom(w, c, t, a, opts) {
   const pool0 = t.hp + shieldOf(t);
-  const got = hurt(w, t, a);
+  const got = hurt(w, t, a, c);
   if (c && c.kind === 'champ' && !(opts && opts.noOmni)) omniHeal(w, c, t, Math.min(got, pool0), !!(opts && opts.aoe));
   return got;
 }
@@ -431,7 +489,7 @@ const igniteHealMul = u => (u && u.ign ? 1 - SPELLS.ignite.healCut : 1);
 const healMul = c => (c && c.ar ? 1 + SKILLS.aatrox.r.heal[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] : 1) * igniteHealMul(c);
 /* 모든 회복의 단일 입구: 회복량 × healMul(c)을 체력에 더하되 최대 체력은 넘지 않음. 죽은 챔피언은 회복 안 함. 회복된 양을 돌려줌.
    src별 글자(HEAL_TXT): 흡혈·사신 태세·다리우스 Q는 '+n' 글자, 체력 재생·명상·가렌 인내심은 글자 없음(예전과 같음). 목록에 없는 src는 기본 글자 */
-const HEAL_TXT = { omni: { big: false, dx: 16 }, aatroxP: { big: true, dx: 16 }, dariusQ: { big: true, dx: 0 }, regen: null, yiMed: null, garenP: null };
+const HEAL_TXT = { omni: { big: false, dx: 16 }, aatroxP: { big: true, dx: 16 }, dariusQ: { big: true, dx: 0 }, regen: null, yiMed: null, garenP: null, dsRec: null, potion: null };
 function heal(w, c, amt, src) {
   if (!c || c.dead || !(amt > 0)) return 0;
   const before = c.hp;
@@ -455,6 +513,7 @@ function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 tru
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
     t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
     t.ign = null;                                                        // 점화도 사라짐(소환사 주문 쿨타임은 나 자신의 것이라 남음)
+    t.dsRec = 0; t.potion = null;                                        // 도란의 방패 회복·마시는 중인 물약도 사라짐(물약 개수는 남음)
     t.gq = null; t.gqMs = 0; t.gqMsPct = 0; t.gw = null; t.ge = null; t.gr = null;   // 가렌 상태도 사라짐(용기는 부활 뒤에도 유지)
     t.aw = null; t.awZone = null; t.ar = null; t.dash = null;                          // 아트록스 W·R·E 상태도 사라짐(부활하면 초기화)
     if (first) grantCourage(killer);
@@ -539,7 +598,7 @@ function tickStatus(w, u, dt) {
   const b = u.bleed;
   if (b && !u.dead) {
     const use = Math.min(dt, b.t), d = b.total / BLEED.dur * use * physMulFor(w, u, b.pen);
-    hurt(w, u, d);
+    hurt(w, u, d, champOf(w, b.src));          // 과다출혈은 시전자(챔피언)의 피해
     b.acc += d; b.txtT += use; b.t -= dt;
     if (b.txtT >= 1 || b.t <= 0) { if (b.acc >= 1) text(w, u.x + 14, u.y - 62, Math.round(b.acc) + '', '#ff5a6a'); b.acc = 0; b.txtT = 0; }
     if (b.t <= 0) u.bleed = null;
@@ -1232,6 +1291,19 @@ function castSpell(w, c, s, ang, aimed) {
   else castFlash(w, c, ang, aimed, say);
 }
 
+/* 액티브 아이템 사용(DESIGN_ITEMS I5). 지금은 체력 물약뿐. 죽었으면 아무 일도 없음.
+   마시는 중이면 '사용 중'(버튼이 잠김), 개수가 없으면 '없음'. 침묵·공중에 뜸·끌려옴·시전 중에도 쓸 수 있음.
+   쓰면 개수 -1, 15초 동안 초당 8 회복(updateChamp에서 회복 경로로). 화면은 fx 'potion' 이벤트로 알 수 있음 */
+function useItem(w, c, item) {
+  if (c.dead || item !== 'potion') return;
+  const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
+  if (c.potion) { say('사용 중'); return; }
+  if (c.potions <= 0) { say('없음'); return; }
+  c.potions--;
+  c.potion = { t: 0 };
+  fx(w, { fx: 'potion', id: c.id });
+}
+
 /* ---------------------------------------------------------------------
    챔피언 한 틱
    --------------------------------------------------------------------- */
@@ -1299,8 +1371,10 @@ function yiMedTick(w, c, dt) {
 }
 
 function respawn(w, c) {
-  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus, courage: c.courage, spCd: c.spCd };   // 추가 스탯(아이템)·가렌 용기·스킬 레벨·소환사 주문 쿨타임은 부활해도 유지
-  Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
+  /* 아이템(items)·추가 스탯(bonus)·물약 개수(potions)·가렌 용기·스킬 레벨·소환사 주문 쿨타임은 부활해도 유지. 물약 개수는 다시 채우지 않음(I5).
+     최대 체력은 추가 스탯을 더해 다시 계산하고, 체력은 가득. 마시는 중인 물약·도란의 방패 회복은 사라짐 */
+  const keep = { sk: c.sk, sp: c.sp, in: c.in, courage: c.courage, spCd: c.spCd };
+  Object.assign(c, makeChamp(c.id, c.key, c.team, c.items, c.potions, c.bonus), keep);
 }
 
 /* 평타 추적 한 틱. 취소 조건(조이스틱 입력, 끌려감·공중, 대상 없음·죽음·대상 지정 불가, search+300 밖)이면 추적을 끊고 null
@@ -1321,7 +1395,18 @@ function updateChamp(w, c, dt) {
   for (const k of SPELL_KEYS) c.spCd[k] = Math.max(0, c.spCd[k] - dt);   // 소환사 주문 쿨타임은 죽어 있는 동안에도 흐름(부활해도 남음)
   if (c.dead) { c.respawn -= dt; if (c.respawn <= 0) respawn(w, c); return; }
   const s = c.stats;
-  heal(w, c, s.regen / 5 * dt, 'regen');                          // 체력 재생: 5초당 수치만큼 (세계의 종결자 중 ×(1+회복 증가))
+  heal(w, c, s.regen / 5 * dt, 'regen');                          // 체력 재생: 5초당 수치만큼 (세계의 종결자 중 ×(1+회복 증가)). 도란의 방패 재생은 stats.regen에 들어 있음(I3)
+  /* 도란의 방패 회복: 피해를 입은 뒤 8초 동안 초당 2.5(= 20 ÷ 8). 회복 경로(heal) 사용 (I4, I6) */
+  if (c.dsRec > 0) {
+    heal(w, c, ITEMS.doranShield.recover / ITEMS.doranShield.recoverT * dt, 'dsRec');
+    c.dsRec = c.dsRec - dt > EPS ? c.dsRec - dt : 0;
+  }
+  /* 체력 물약: 15초 동안 초당 8(= 120 ÷ 15). 마시는 중인 동안 매 틱 회복 (I5, I6) */
+  if (c.potion) {
+    heal(w, c, ITEMS.potion.heal / ITEMS.potion.dur * dt, 'potion');
+    c.potion.t += dt;
+    if (c.potion.t >= ITEMS.potion.dur - EPS) c.potion = null;
+  }
   c.mana = Math.min(s.maxMana, c.mana + s.manaRegen / 5 * dt);    // 마나 재생: 5초당 수치만큼
   c.might = Math.max(0, c.might - dt);
   c.medPost = Math.max(0, c.medPost - dt);
@@ -1457,7 +1542,7 @@ function updateTurret(w, t, dt) {
       t.shot = null;
       const eff = tgt.stats.armor * (1 - c.pen);
       const dmg = turretAD(gameTime(w)) * (1 + c.stackBonus * t.stacks) * dmgMul(eff);
-      const got = hurt(w, tgt, dmg, true);     // 포탑 피해: 명상 피해 감소는 절반
+      const got = hurt(w, tgt, dmg, t);        // 포탑 피해: 명상 피해 감소는 절반. 챔피언이 아니므로 도란의 방패는 반응하지 않음
       text(w, tgt.x, tgt.y - px(40), got.toFixed(0), '#ff6b6b', true);
       t.stacks = Math.min(c.stackMax, t.stacks + 1);
       if (settle(w, tgt)) resetTurretLock(t);
@@ -1471,7 +1556,7 @@ function updateTurret(w, t, dt) {
 function devOp(w, c, cmd) {
   switch (cmd.op) {
     case 'air': if (!c.dead) { c.air = 1; c.airMax = 1; c.atk = null; c.cast = null; c.qPrep = null; text(w, c.x, c.y - px(75), '공중에 뜸', '#cfe8ff', true); } break;
-    case 'ready': for (const k of SKILL_KEYS) c.cd[k] = 0; for (const k of SPELL_KEYS) c.spCd[k] = 0; c.mana = c.stats.maxMana; break;
+    case 'ready': for (const k of SKILL_KEYS) c.cd[k] = 0; for (const k of SPELL_KEYS) c.spCd[k] = 0; c.mana = c.stats.maxMana; break;   // 쿨타임 초기화(물약 개수는 채우지 않음, I7)
     case 'time': w.devT += cmd.sec || 0; break;
     case 'spawn': { const sp = SPAWNS[c.team] || SPAWNS[0]; c.x = sp.x; c.y = sp.y; break; }
     case 'turretReset': for (const t of w.turrets) if (t.team !== c.team) { t.hp = t.maxHp; t.dead = false; resetTurretLock(t); t.cd = 0; } break;
@@ -1493,6 +1578,7 @@ function applyCommand(w, cmd) {
     }
     case 'cast': castSkill(w, c, cmd.skill, Number(cmd.ang), !!cmd.aimed); break;
     case 'spell': castSpell(w, c, cmd.spell, Number(cmd.ang), !!cmd.aimed); break;
+    case 'item': useItem(w, c, cmd.item); break;
     case 'levelup': levelUp(w, c, cmd.skill); break;
     case 'dev': if (w.devMode) devOp(w, c, cmd); break;
   }
@@ -1529,6 +1615,8 @@ return {
   // 아트록스 (DESIGN_AATROX.md §2): 사신 태세 상수, Q 도형(화면과 같은 값), Q 단계(버튼 표시), W 충격 지대 꼭짓점, E 흡혈 값
   AATROX_PASSIVE, aatroxQShape, aatroxQStage, aatroxWZone, aatroxEOmni, aatroxDashDir, atkRange,
   // 소환사 주문 (DESIGN_SPELLS.md §1): 상수, 점화 대상, 점멸 도착점(화면 미리보기)
-  SPELLS, SPELL_KEYS, igniteTarget, flashDest
+  SPELLS, SPELL_KEYS, igniteTarget, flashDest,
+  // 시작 아이템 (DESIGN_ITEMS.md §1): 아이템 데이터, 세트 목록, 선택지 순서, 툴팁용 설명
+  ITEMS, START_SETS, startSetOrder, itemDefs
 };
 });

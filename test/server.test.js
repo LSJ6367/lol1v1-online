@@ -197,6 +197,7 @@ function runUntilSelect(room, maxTicks) {
     assert.ok(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/.test(r1.code), '코드 ' + r1.code);
     assert.strictEqual(r1.state, 'select');
     assert.strictEqual(r1.players[0].team, 0);
+    assert.strictEqual(r1.players[0].set, 'blade', '시작 아이템 기본 세트(다리우스 첫 선택지)');
     ctx.code = r1.code;
     send(C, { t: 'join', code: r1.code === 'AAAA' ? 'BBBB' : 'AAAA' });   // 존재하지 않는 코드
     const nf = await wait(C, m => m.t === 'error', 'room_not_found');

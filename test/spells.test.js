@@ -419,7 +419,7 @@ setWallMap(0, 0);                                                          // �
 // ---------------------------------------------------------------------
 // 9. 프로토콜: sp 행동 검사 · 명령 변환 · 버전
 // ---------------------------------------------------------------------
-{ ok('9 프로토콜 버전 13', P.VERSION === 13, P.VERSION);
+{ ok('9 프로토콜 버전 13 이상(점화·점멸 추가 뒤)', P.VERSION >= 13, P.VERSION);
   ok('9 SPELL_KEYS = ignite, flash', JSON.stringify(P.SPELL_KEYS) === '["ignite","flash"]');
   const f = P.sanitizeFrame({ s: 5, mx: 0, my: 0, acts: [{ k: 'sp', s: 'ignite' }, { k: 'sp', s: 'flash', ang: 1.23456, aimed: true }] });
   ok('9 sp 행동: 점화(ang 없음)와 점멸(ang 반올림, aimed true) 통과', f.acts.length === 2 && f.acts[0].k === 'sp' && f.acts[0].s === 'ignite' && !('ang' in f.acts[0]) && f.acts[1].ang === 1.235 && f.acts[1].aimed === true, JSON.stringify(f.acts));
