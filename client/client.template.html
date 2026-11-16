@@ -138,6 +138,18 @@ button { font: inherit; color: inherit; }
 .sk.silenced { border-color: #6b5a8a; color: #8c7fa6; background: radial-gradient(circle at 40% 35%, #1d2030, #0a0c13); }
 .sk.silenced svg { opacity: .3; }
 .sk.silenced::before { content: ""; position: absolute; left: 20%; right: 20%; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; background: #d2607f; box-shadow: 0 0 6px rgba(210,96,127,.8); transform: rotate(-45deg); z-index: 2; pointer-events: none; }
+/* 소환사 주문 (점화·점멸): 스킬 1 왼쪽에 가로로 나란히(점화 왼쪽, 점멸 오른쪽). 위치는 #actions의 --k·--sz를 그대로 써서 화면마다 같이 줄어듦. 크기는 스킬의 80% */
+.spw { position: absolute; left: calc(50% + var(--dx) * var(--k) * 1px); top: calc(50% + var(--dy) * var(--k) * 1px); width: calc(var(--sz) * .8); height: calc(var(--sz) * .8); transform: translate(-50%, -50%); }
+.sp { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #2a3a4c, #0e151d); border: 2px solid var(--sb); color: var(--sc); cursor: pointer; touch-action: none; overflow: hidden; --cd: 0; box-shadow: 0 3px 10px rgba(0,0,0,.6); transition: transform .08s; }
+.sp[data-s="ignite"] { --sb: #ff8a3c; --sc: #ffb36b; background: radial-gradient(circle at 40% 35%, #46220c, #120803); }
+.sp[data-s="flash"] { --sb: #ffe066; --sc: #fff6c2; background: radial-gradient(circle at 40% 35%, #423b10, #12100a); }
+.sp svg { width: 58%; height: 58%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sp::after { content: ""; position: absolute; inset: 0; background: conic-gradient(rgba(10,16,23,.78) calc(var(--cd) * 360deg), transparent 0); pointer-events: none; }
+.sp .cdT { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; font-family: var(--display); font-size: calc(var(--sz) * .24); color: #fff; text-shadow: 0 1px 3px #000; font-variant-numeric: tabular-nums; pointer-events: none; }
+.sp.hold { transform: scale(1.08); }
+.sp[data-s="ignite"].hold { box-shadow: 0 0 14px rgba(255,140,60,.9); }
+.sp[data-s="flash"].hold { box-shadow: 0 0 14px rgba(255,236,120,.9); }
+.sp.locked { filter: grayscale(1); opacity: .42; }
 .lvup { position: absolute; left: 50%; bottom: calc(100% + 3px); width: 22px; height: 20px; padding: 0; display: grid; place-items: center; background: var(--gold); color: #1a1408; border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1; touch-action: none; transform: translateX(-50%); animation: lvbob .9s ease-in-out infinite; }
 @keyframes lvbob { 50% { transform: translate(-50%, -3px); } }
 .dots { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 2px; pointer-events: none; }
@@ -240,7 +252,7 @@ button { font: inherit; color: inherit; }
     <div class="cards" id="cards"></div>
     <button class="go" id="goBtn" type="button">맵 입장</button>
     <button class="ghost" id="btnBackLobby" type="button">로비로 돌아가기</button>
-    <p class="hint">조작: 왼쪽 조이스틱으로 이동, 오른쪽 평타 버튼으로 공격. 스킬은 모두 0레벨이라 ▲ 버튼으로 스킬 포인트 6개를 먼저 쓰세요. 스킬 버튼은 탭하면 바로 시전, 길게 누르면 범위가 보이고 손을 떼면 시전됩니다. PC: WASD 이동, Space 공격, 1~4 스킬, Shift+1~4 스킬 레벨업. 가로 화면을 권장합니다.</p>
+    <p class="hint">조작: 왼쪽 조이스틱으로 이동, 오른쪽 평타 버튼으로 공격. 스킬은 모두 0레벨이라 ▲ 버튼으로 스킬 포인트 6개를 먼저 쓰세요. 스킬 버튼은 탭하면 바로 시전, 길게 누르면 범위가 보이고 손을 떼면 시전됩니다. PC: WASD 이동, Space 공격, 1~4 스킬, 5 점화, 6 또는 F 점멸, Shift+1~4 스킬 레벨업. 가로 화면을 권장합니다.</p>
   </section>
 
   <section id="lobby" class="screen" aria-label="로비" hidden>
@@ -359,6 +371,8 @@ button { font: inherit; color: inherit; }
         <button class="sk" type="button" data-k="r" data-lv="0"></button>
         <div class="dots" aria-hidden="true"></div>
       </div>
+      <div class="spw" data-s="ignite" style="--dx:-259;--dy:4"><button class="sp" type="button" data-s="ignite"></button></div>
+      <div class="spw" data-s="flash" style="--dx:-207;--dy:4"><button class="sp" type="button" data-s="flash"></button></div>
     </div>
   </div>
 </div>

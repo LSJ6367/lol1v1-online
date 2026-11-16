@@ -9,7 +9,8 @@
    세션은 두 종류: LocalSession(session_local.js, 이 브라우저에서 Core 실행)과 OnlineSession(session_online.js, 서버와 예측·보간).
    이 파일은 세션 인터페이스만 쓰고, 화면 흐름은 lobby.js가 Game(window.Game)으로 제어합니다.
    ===================================================================== */
-const { TICK, MAP_W, MAP_H, HIT_R, SK, BLEED, TURRET_CFG, CHAMPS, SKILL_KEYS, px } = Core;
+const { TICK, MAP_W, MAP_H, HIT_R, SK, BLEED, TURRET_CFG, CHAMPS, SKILL_KEYS, SPELL_KEYS, px } = Core;
+const SP = Core.SPELLS;                               // 소환사 주문 수치(점화 사거리·지속·치유 감소·쿨타임, 점멸 거리). 규칙은 Core가 계산
 const VIEW_H = 576, VIEW_MIN_W = 816;                 // 컨셉 화면 기준 카메라 영역(px)
 const SPRITE_H = { darius: 56, yi: 58, garen: 60, aatrox: 80 };   // 스프라이트 높이(px). 아트록스는 검이 위로 길어서(몸통 72%) 몸통이 가렌과 비슷하게 보이도록 80
 const SPRITE_AX = { darius: 0.60, yi: 0.50, garen: 0.39, aatrox: 0.52 };   // 발 위치(가로 비율)
@@ -23,6 +24,9 @@ const GAR = Core.SKILLS.garen;                        // 가렌 수치(화면 �
 const AQ = Core.SKILLS.aatrox.q;                      // 아트록스 Q 수치(시전 시간·재사용 창, 화면 표시용)
 const AW = Core.SKILLS.aatrox.w, AE = Core.SKILLS.aatrox.e, AR = Core.SKILLS.aatrox.r;   // 지옥사슬·파멸의 돌진·세계의 종결자 수치(화면 표시용)
 const spinLocked = me => !!me && me.key === 'garen' && !!me.ge && me.ge.t < GAR.e.cancelLock - 1e-9;   // 심판 시작 뒤 cancelLock초: E 취소 불가(Core castGaren과 같은 판정)
+/* 소환사 주문(점화·점멸)을 못 쓰는 상태: 코어 castSpell과 같은 조건(사망·공중·끌려옴·일격필살·돌진). 침묵은 막지 않음 */
+const spLocked = me => !me || me.dead || me.air > 0 || !!me.pull || !!me.yq || !!me.dash;
+const SPELL_BY_CODE = { Digit5: 'ignite', Digit6: 'flash', KeyF: 'flash' };   // PC 키: 5 점화, 6·F 점멸
 const fmt = (n, d = 0) => Number(n).toFixed(d);
 const dmgTxt = n => n < 10 ? fmt(n, 1) : fmt(n, 0);
 
@@ -85,6 +89,13 @@ function castSkill(k, ang, aimed) {
   if (aimed && k === 'e') cmd.aimed = true;
   session.send(cmd);
 }
+/* 소환사 주문(DESIGN_SPELLS §2): 침묵과 무관. 점멸만 조준 방향을 보냄(끌어서 조준했을 때 ang·aimed). 탭·키보드는 아무것도 안 보냄 → 코어가 조이스틱·바라보는 방향을 씀 */
+function castSpell(s, ang, aimed) {
+  const me = ME(); if (!me || phase !== 'play' || spLocked(me)) return;
+  const cmd = { type: 'spell', id: me.id, spell: s };
+  if (aimed && s === 'flash') { cmd.ang = ang; cmd.aimed = true; }
+  session.send(cmd);
+}
 function levelUp(k) { const me = ME(); if (me) session.send({ type: 'levelup', id: me.id, skill: k }); }
 function dev(op, extra) { const me = ME(); if (me) session.send(Object.assign({ type: 'dev', id: me.id, op }, extra)); }
 const autoAng = champOnly => Core.autoAim(W(), ME(), champOnly);
@@ -131,6 +142,7 @@ window.addEventListener('keydown', e => {
   if (phase !== 'play') return;
   if (MOVE_KEYS[e.code]) { input.keys.add(MOVE_KEYS[e.code]); e.preventDefault(); }
   else if (/^Digit[1-4]$/.test(e.code)) { const k = SKILL_KEYS[+e.code.slice(5) - 1]; if (e.shiftKey) levelUp(k); else castSkill(k, autoAng(k === 'e')); e.preventDefault(); }
+  else if (SPELL_BY_CODE[e.code]) { if (!e.repeat) castSpell(SPELL_BY_CODE[e.code]); e.preventDefault(); }   // 누르고 있어도 한 번만(반복 입력은 쿨타임 문구만 늘어남)
   else if (e.code === 'Space' || e.code === 'KeyJ') { input.atkKey = true; atk.classList.add('down'); e.preventDefault(); }
 });
 window.addEventListener('keyup', e => {
@@ -286,6 +298,7 @@ function overCancel(x, y) {   // X 아이콘 위인지(손가락이라 12px 여�
   return x >= r.left - m && x <= r.right + m && y >= r.top - m && y <= r.bottom + m;
 }
 const held = {};   // 누르고 있는 스킬 버튼 { id, sx, sy, t, dragged, ang, show }  (조준은 클라이언트에서만)
+const heldSp = {}; // 누르고 있는 소환사 주문 버튼 (같은 모양). 침묵과 무관하므로 held와 따로 둠
 const skW = {};
 for (const k of SKILL_KEYS) {
   const w = document.querySelector(`.skw[data-k="${k}"]`);
@@ -411,11 +424,63 @@ function refreshSkills() {
       if (k === 'w' || k === 'r') set('act', act, v => o.b.classList.toggle('on', v));
     }
   }
-  // 스킬을 누른 채 조준 중일 때만 X(취소) 표시
+  // 스킬·주문을 누른 채 조준 중일 때만 X(취소) 표시
   let aiming = false, inX = false;
-  for (const k in held) { const h = held[k]; if (h.show || h.dragged) aiming = true; if (h.cancel) inX = true; }
+  for (const h of Object.values(held).concat(Object.values(heldSp))) { if (h.show || h.dragged) aiming = true; if (h.cancel) inX = true; }
   if (skCancel.hidden === aiming) skCancel.hidden = !aiming;
   skCancel.classList.toggle('over', aiming && inX);
+}
+
+/* ---------- 소환사 주문 버튼 (점화 · 점멸, DESIGN_SPELLS §2): 스킬 1 왼쪽에 가로로. 스킬 버튼과 같은 조작(탭 = 바로, 길게 = 조준, X로 끌면 취소).
+   침묵과 무관하게 누를 수 있고, 사망·공중 등 spLocked 상태에서는 회색으로 잠김 ---------- */
+const SPELL_ICON = {
+  // 점화: 주황 불꽃 (바깥 불꽃 + 안쪽 노란 속불)
+  ignite: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.6c-4.2 0-6.9-2.9-6.9-6.8 0-3.2 1.9-5.6 3.6-7.6.3 2 1.1 3.3 2.3 4.1C10.7 8.2 11.2 5.2 13.9 2.4c.9 3.1 4.9 5.8 4.9 11.2 0 4.8-2.9 8-6.8 8z" fill="#ff7a1f" fill-opacity=".38" stroke="#ffb35c"/><path d="M12 19.6c-1.7 0-2.6-1.2-2.4-2.7.2-1.4 1.1-2.1 1.9-3.6.9 1.1 1.5 1.9 1.6 2.9.5-.5.8-1.1.8-1.9 1 .9 1.5 2 1.4 3.1-.2 1.4-1.3 2.2-3.3 2.2z" fill="#ffe08a" stroke="#fff1c2" stroke-width="1.3"/></svg>',
+  // 점멸: 노란빛 번쩍임 (큰 4점 별 + 작은 별 두 개)
+  flash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 2.6 13.2 9.4 20 11.1 13.2 12.8 11.5 19.6 9.8 12.8 3 11.1 9.8 9.4z" fill="#fff3a6" fill-opacity=".35" stroke="#ffe066"/><path d="M19.2 2.8v3.6M17.4 4.6h3.6" stroke="#fffbe8" stroke-width="1.6"/><path d="M5 19.6v2.8M3.6 21h2.8" stroke="#fffbe8" stroke-width="1.5"/></svg>'
+};
+const SPELL_LABEL = { ignite: '점화', flash: '점멸' };
+const spW = {};
+/* 쿨타임 글자: 1분 이상은 m:ss(2:58), 10초 이상은 정수 초, 그 아래는 소수 한 자리. 내림으로 표시해서 방금 쓴 점멸은 2:59부터 보임 */
+function spCdTxt(cd) {
+  if (cd >= 60) return `${Math.floor(cd / 60)}:${String(Math.floor(cd % 60)).padStart(2, '0')}`;
+  if (cd >= 10) return String(Math.floor(cd));
+  return fmt(cd, 1);
+}
+for (const s of SPELL_KEYS) {
+  const w = document.querySelector(`.spw[data-s="${s}"]`), b = w.querySelector('.sp');
+  b.innerHTML = SPELL_ICON[s] + '<span class="cdT"></span>';
+  spW[s] = { w, b, cdT: b.querySelector('.cdT'), s: {} };
+  b.setAttribute('aria-label', SPELL_LABEL[s]);
+  b.addEventListener('pointerdown', e => {
+    if (spLocked(ME())) return;   // 사망·공중 등: 눌러도 아무 일도 없음(조준 표시도 안 함)
+    heldSp[s] = { id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now(), dragged: false, ang: 0, show: false, cancel: false };
+    b.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  b.addEventListener('pointermove', e => {
+    const h = heldSp[s]; if (!h || h.id !== e.pointerId) return;
+    const dx = e.clientX - h.sx, dy = e.clientY - h.sy;
+    if (Math.hypot(dx, dy) > 14) { h.dragged = true; h.ang = Math.atan2(dy, dx); }
+    h.cancel = overCancel(e.clientX, e.clientY);
+  });
+  const up = (e, cancel) => {
+    const h = heldSp[s]; if (!h || h.id !== e.pointerId) return;
+    delete heldSp[s];
+    if (!cancel && !overCancel(e.clientX, e.clientY)) castSpell(s, h.dragged ? h.ang : undefined, h.dragged);
+  };
+  b.addEventListener('pointerup', e => up(e, false)); b.addEventListener('pointercancel', e => up(e, true));
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+function refreshSpells() {
+  const me = ME(), locked = spLocked(me);
+  for (const s of SPELL_KEYS) {
+    const o = spW[s]; o.w.hidden = !me; if (!me) continue;
+    const cd = me.spCd[s], set = (name, v, fn) => { if (o.s[name] !== v) { o.s[name] = v; fn(v); } };
+    set('cdf', cd > 0 ? (cd / SP[s].cd).toFixed(3) : '0', v => o.b.style.setProperty('--cd', v));   // 쿨타임 덮개(시계 방향으로 줄어듦)
+    set('cdt', cd > 0 ? spCdTxt(cd) : '', v => { o.cdT.textContent = v; });
+    set('lock', locked, v => { o.b.classList.toggle('locked', v); o.b.setAttribute('aria-disabled', String(v)); });
+    set('hold', !!(heldSp[s] && heldSp[s].show), v => o.b.classList.toggle('hold', v));
+  }
 }
 
 /* ---------- 테스트 도구 ---------- */
@@ -453,6 +518,7 @@ function setTestTools(on) { $('#testH').hidden = !on; $('#testTools').hidden = !
 function clearInputs() {
   input.keys.clear(); input.jx = input.jy = 0; input.atkTouch = input.atkKey = false; atk.classList.remove('down');
   for (const k in held) delete held[k];
+  for (const k in heldSp) delete heldSp[k];
   lastSent = '';
 }
 window.Game = {
@@ -484,7 +550,7 @@ window.Game = {
    코어 이벤트 → 화면 효과
    ===================================================================== */
 const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9, aqHit: 0.35,
-  awFire: 0.3, awHit: 0.45, awPull: 0.4, awMiss: 0.35, aeDash: 0.4, arStart: 0.7 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초). awZone은 상태(c.awZone)로 그려서 수명 없이 무시
+  awFire: 0.3, awHit: 0.45, awPull: 0.4, awMiss: 0.35, aeDash: 0.4, arStart: 0.7, ignite: 0.42, flash: 0.32 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초). awZone은 상태(c.awZone)로 그려서 수명 없이 무시
 /* 가렌 결정타 강화 평타 판별: 직전 프레임에 강화(gq)가 있었고 이번 프레임에 사라졌으면 그 평타가 강화 평타(클라이언트에서 추적) */
 const gqWas = new Map();
 function garenEmpowered() { return W().champs.some(c => c.key === 'garen' && gqWas.get(c.id) && !c.gq); }
@@ -608,11 +674,15 @@ function drawChampBar(c, cx, bottomY) {
     if (sh > 0 && s1 > s0) { ctx.fillStyle = SHIELD_FILL; ctx.fillRect(x0 + s0, y0, s1 - s0, h); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(x0, y0, w, 2);
+  // 상태 줄은 막대 바로 위부터 한 줄씩 쌓음: 침묵 → 방어력 감소 → 점화(없는 줄은 건너뜀. 위치는 예전과 같음)
+  let sy = y0 - 6;
   if (c.silence && !c.dead) {   // 침묵 상태 표시: 머리 위 막대 바로 위(상대에게도 보임)
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = `700 9.5px ${FONT}`; ctx.fillStyle = '#9fd8ff';
-    ctx.fillText(`침묵 ${fmt(c.silence.t, 1)}초`, x0 + w / 2, y0 - 6);
+    ctx.fillText(`침묵 ${fmt(c.silence.t, 1)}초`, x0 + w / 2, sy);
+    sy -= 11;
   }
-  if (c.shred && !c.dead) drawShredTag(x0 + w / 2, c.silence && !c.dead ? y0 - 17 : y0 - 6, c.shred);   // 방어력 감소: 침묵 줄 위(없으면 그 자리)
+  if (c.shred && !c.dead) { drawShredTag(x0 + w / 2, sy, c.shred); sy -= 11; }   // 방어력 감소: 침묵 줄 위(없으면 그 자리)
+  if (c.ign && !c.dead) drawIgniteLine(x0 + w / 2, sy, c);   // 점화: 상태 줄(DESIGN_SPELLS §2)
   if (c.stats.maxMana > 0) {   // 마나 없는 챔피언(가렌)은 마나바를 그리지 않음. 체력바 자리·크기는 그대로
     const my = y0 + h + 2;
     ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, my - 1.5, w + 3, MH + 3, 2); ctx.fill();
@@ -900,6 +970,7 @@ function drawDummyBar(d) {
   const st = []; if (d.air > 0 || d.pull) st.push('공중에 뜸'); if (d.slow) st.push(`둔화 ${fmt(d.slow.pct * 100, 0)}% ${fmt(d.slow.t, 1)}초`);
   if (d.silence) st.push(`침묵 ${fmt(d.silence.t, 1)}초`);
   if (st.length) { ctx.fillStyle = '#9fd8ff'; ctx.fillText(st.join(' · '), x, y0 - 38); }
+  if (d.ign) drawIgniteLine(x, st.length ? y0 - 49 : y0 - 38, d);   // 점화: 상태 줄(다른 상태 줄 위, 없으면 그 자리)
   ctx.font = `500 9px ${FONT}`; ctx.fillStyle = '#ffe2a8';
   ctx.fillText(`총 피해 ${fmt(d.total, 0)} · 최근 5초 DPS ${fmt(Core.dummyDps(W(), d), 1)}`, x, y0 - 5);
 }
@@ -1379,6 +1450,135 @@ function drawSkillWorld(me) {
   }
   ctx.restore();
 }
+/* ---------- 소환사 주문 효과 (DESIGN_SPELLS §2). 모두에게 보임: 점화 줄기·불꽃 입자·상태 줄, 점멸 반짝임. 나에게만: 조준 표시 ---------- */
+const bodyY = (u, y) => y - (u.kind === 'dummy' ? 34 : spriteH(u) * 0.5);   // 몸통 가운데 높이(허수아비 · 챔피언)
+/* 점화 상태 줄: "점화 n.n초 · 치유 −40%" (남은 시간 = 지속 − 지난 시간). 다른 상태 줄과 같은 글꼴, 주황 글자 */
+function drawIgniteLine(cx, y, u) {
+  const left = Math.max(0, SP.ignite.dur - u.ign.t);
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = `700 9.5px ${FONT}`; ctx.fillStyle = '#ffb36b';
+  ctx.fillText(`점화 ${fmt(left, 1)}초 · 치유 −${Math.round(SP.ignite.healCut * 100)}%`, cx, y);
+  ctx.restore();
+}
+/* 점화가 걸린 대상: 몸통 주변 은은한 주황 빛 + 발밑 빛 + 불꽃 입자 8개가 시간차로 올라가며 사라짐(난수 없이 시계로 계산) */
+function drawIgniteFlames(u) {
+  const [x, y] = P2(u), H = u.kind === 'dummy' ? 40 : spriteH(u) * 0.75, N = 8;
+  const pulse = 0.5 + 0.5 * Math.sin(clockT * 9);
+  ctx.save();
+  const g = ctx.createRadialGradient(x, y - H * 0.45, 1, x, y - H * 0.45, H * 0.75);
+  g.addColorStop(0, `rgba(255,140,50,${(0.26 + 0.1 * pulse).toFixed(3)})`); g.addColorStop(1, 'rgba(255,100,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - H * 0.45, H * 0.75, 0, 7); ctx.fill();
+  ctx.fillStyle = `rgba(255,120,35,${(0.35 + 0.12 * pulse).toFixed(3)})`;
+  ctx.beginPath(); ctx.ellipse(x, y - 1, 16, 5.5, 0, 0, 7); ctx.fill();
+  for (let i = 0; i < N; i++) {
+    const ph = (clockT * 1.1 + i / N) % 1;                 // 0 = 발밑, 1 = 머리 위(사라짐)
+    const a = Math.min(1, ph * 6) * (1 - ph * 0.7);        // 빨리 켜지고 천천히 꺼짐
+    const ox = Math.sin(i * 2.7 + ph * 5) * (4 + 6 * ph);  // 좌우로 조금씩 흔들림
+    const r = 2.2 + 3.2 * (1 - ph);
+    ctx.fillStyle = i % 2 ? `rgba(255,220,110,${(0.95 * a).toFixed(3)})` : `rgba(255,125,35,${(0.92 * a).toFixed(3)})`;
+    ctx.beginPath(); ctx.ellipse(x + ox, y - 2 - ph * H, r * 0.8, r * 1.25, 0, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+/* 점화 시전(fx 'ignite', 0.42초): 주황 불꽃 줄기가 시전자 몸통에서 대상 몸통까지 날아가고(앞 55%), 도착하면 주황 고리가 퍼짐 */
+function drawIgniteFx(f, p) {
+  const src = Core.champOf(W(), f.src), tgt = Core.unitOf(W(), f.targetId);
+  if (!src || !tgt) return;
+  const [sx, sy] = P2(src), [tx0, ty0] = P2(tgt);
+  const ax = sx, ay = bodyY(src, sy), tx = tx0, ty = bodyY(tgt, ty0);
+  const q = Math.min(1, p / 0.55), e = 1 - (1 - q) * (1 - q);   // 빠르게 출발해 도착 직전 느려짐
+  const hx = ax + (tx - ax) * e, hy = ay + (ty - ay) * e;        // 불꽃 머리
+  const tl = Math.max(0, e - 0.45), kx = ax + (tx - ax) * tl, ky = ay + (ty - ay) * tl;   // 꼬리(머리를 뒤에서 따라감)
+  ctx.save(); ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(255,100,30,.3)'; ctx.lineWidth = 16; ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(hx, hy); ctx.stroke();   // 바깥 주황 빛
+  const g = ctx.createLinearGradient(kx, ky, hx, hy);
+  g.addColorStop(0, 'rgba(255,80,20,0)'); g.addColorStop(1, 'rgba(255,170,70,1)');
+  ctx.strokeStyle = g; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(hx, hy); ctx.stroke();   // 불꽃 몸통
+  const mx = (kx + hx) / 2, my = (ky + hy) / 2;
+  ctx.strokeStyle = 'rgba(255,246,205,.95)'; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(hx, hy); ctx.stroke();   // 밝은 속심
+  ctx.fillStyle = '#fff4cf'; ctx.beginPath(); ctx.arc(hx, hy, 4, 0, 7); ctx.fill();
+  if (p > 0.55) {   // 도착: 주황 고리가 퍼지며 사라짐
+    const k = (p - 0.55) / 0.45;
+    ctx.lineWidth = 3 * (1 - k) + 0.6; ctx.strokeStyle = 'rgba(255,140,50,.95)';
+    ctx.beginPath(); ctx.arc(tx, ty, 6 + 20 * k, 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+/* 점멸 반짝임 한 점: 빛 덩이 + 퍼지는 고리 + 별 6개(바깥으로 흩어짐). (x, y) 중심, e = 퍼짐 정도(0→1), p = 수명 비율 */
+function flashBurst(x, y, e, p) {
+  const R = 4 + 24 * e;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, R + 8);
+  g.addColorStop(0, 'rgba(255,255,244,.95)'); g.addColorStop(0.4, 'rgba(255,238,140,.55)'); g.addColorStop(1, 'rgba(255,220,90,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, R + 8, 0, 7); ctx.fill();
+  ctx.lineWidth = 2 * (1 - p) + 0.6; ctx.strokeStyle = 'rgba(255,250,215,.95)';
+  ctx.beginPath(); ctx.arc(x, y, 6 + 26 * e, 0, 7); ctx.stroke();
+  ctx.fillStyle = '#fffbe8';
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3 + 0.3, d = 9 + 22 * e, r = (i % 2 ? 4 : 7) * (1 - 0.6 * p);
+    sparkle(x + Math.cos(a) * d, y + Math.sin(a) * d, r);
+  }
+}
+/* 점멸(fx 'flash', 0.32초, 모두에게): 출발·도착 지점에 노란 흰빛 반짝임, 두 지점 사이에 희미한 잔광(띠 + 가는 선) */
+function drawFlashFx(f, p) {
+  const e = 1 - (1 - p) * (1 - p);
+  const ax = f.x0, ay = f.y0 - 26, bx = f.x1, by = f.y1 - 26;   // 몸통 높이에서 시작·끝
+  ctx.save(); ctx.lineCap = 'round';
+  const g = ctx.createLinearGradient(ax, ay, bx, by);
+  g.addColorStop(0, 'rgba(255,246,190,.12)'); g.addColorStop(0.5, 'rgba(255,250,220,.55)'); g.addColorStop(1, 'rgba(255,246,190,.12)');
+  ctx.strokeStyle = g; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,240,.7)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  flashBurst(ax, ay, e, p); flashBurst(bx, by, e, p);
+  ctx.restore();
+}
+/* 점멸 도착점 미리보기: 같은 모습의 반투명 스프라이트를 (gx, gy) 발밑에 그림 */
+function drawChampGhost(c, gx, gy, a, flip) {
+  const img = c.key === 'aatrox' && c.ar ? imgs.aatrox_r : imgs[c.key], sh = spriteH(c), sw = sh * img.width / img.height;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(gx, gy); if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(img, -spriteAx(c) * sw, -sh, sw, sh); ctx.restore();
+}
+/* 조준 안내 글자: 잔디 위에서도 읽히도록 짙은 테두리 */
+function aimLabel(txt, x, y, col) {
+  ctx.lineWidth = 2.8; ctx.strokeStyle = 'rgba(5,8,11,.92)'; ctx.strokeText(txt, x, y);
+  ctx.fillStyle = col; ctx.fillText(txt, x, y);
+}
+/* 소환사 주문 조준 표시(나에게만, 길게 누르는 중 · X 위면 빨간 점선). 점화: 사거리 600 원 + 대상 주황 고리(없으면 글자).
+   점멸: 코어가 쓸 방향(aatroxDashDir)의 화살표 + 실제 도착 지점(flashDest, 벽 보정 후) 미리보기 */
+function drawSpellAim(me) {
+  if (spLocked(me)) return;
+  const [x, y] = P2(me);
+  for (const s of SPELL_KEYS) {
+    const h = heldSp[s]; if (!h || !h.show) continue;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `600 9px ${FONT}`;
+    if (s === 'ignite') {
+      ctx.beginPath(); ctx.arc(x, y, px(HIT_R + SP.ignite.range), 0, 7);
+      ctx.fillStyle = h.cancel ? 'rgba(255,60,70,.10)' : 'rgba(255,140,60,.10)'; ctx.fill();
+      ctx.lineWidth = 2.2; ctx.strokeStyle = h.cancel ? 'rgba(255,90,100,.9)' : 'rgba(255,150,70,.95)';
+      if (h.cancel) ctx.setLineDash([6, 5]);
+      ctx.stroke(); ctx.setLineDash([]);
+      const t = Core.igniteTarget(W(), me);
+      if (t) { const [tx, ty] = P2(t); ctx.beginPath(); ctx.arc(tx, ty, px(t.r) + 5, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = '#ff8a3c'; ctx.stroke(); }
+      else aimLabel('사거리 안에 대상 없음', x, y + 24, '#ffe2c4');
+    } else {
+      const aimed = !!h.dragged, ang = aimed ? h.ang : undefined;
+      const dir = Core.aatroxDashDir(me, ang, aimed), dst = Core.flashDest(W(), me, ang, aimed);
+      const col = h.cancel ? 'rgba(255,90,100,.9)' : 'rgba(255,236,120,.95)';
+      const L = px(SP.flash.dist), ex = x + Math.cos(dir) * L, ey = y + Math.sin(dir) * L;   // 방향 화살표(끝 = 사거리 400)
+      ctx.setLineDash([7, 5]); ctx.lineWidth = 2.2; ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - Math.cos(dir + 0.45) * 11, ey - Math.sin(dir + 0.45) * 11); ctx.lineTo(ex - Math.cos(dir - 0.45) * 11, ey - Math.sin(dir - 0.45) * 11); ctx.closePath(); ctx.fill();
+      if (Math.hypot(dst.x - me.x, dst.y - me.y) < 1) {   // 갈 곳 없음: 이동하지 않음(쿨타임도 안 씀)
+        ctx.beginPath(); ctx.arc(x, y, px(HIT_R) + 4, 0, 7); ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,90,100,.9)'; ctx.stroke(); ctx.setLineDash([]);
+        aimLabel('이동할 곳 없음', x, y + 24, '#ffc4c6');
+      } else {
+        ctx.beginPath(); ctx.arc(dst.x, dst.y, px(HIT_R) + 4, 0, 7); ctx.fillStyle = 'rgba(255,236,120,.14)'; ctx.fill();
+        ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke(); ctx.setLineDash([]);
+        drawChampGhost(me, dst.x, dst.y, h.cancel ? 0.14 : 0.42, Math.cos(dir) < 0);
+      }
+    }
+    ctx.restore();
+  }
+}
+
 /* 평타 추적 중인 대상 표시(내 화면에만): 대상 발밑의 하늘색 점선 원 */
 function drawChaseMarker(me) {
   if (!me.chase || me.dead) return;
@@ -1554,6 +1754,10 @@ function drawFx() {
       ctx.translate(f.x, f.y); ctx.strokeStyle = '#ff4d5a'; ctx.lineWidth = 4;
       for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 14 - 18, -30 + p * 30 - 20); ctx.lineTo(i * 14 + 18, 30 - 20); ctx.stroke(); }
       ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 10 + p * 46, 0, 7); ctx.stroke();
+    } else if (f.fx === 'ignite') {  // 점화 시전: 주황 불꽃 줄기 + 도착 고리
+      drawIgniteFx(f, p);
+    } else if (f.fx === 'flash') {   // 점멸: 출발·도착 지점 반짝임 + 잔광
+      drawFlashFx(f, p);
     }
     ctx.restore();
   }
@@ -1641,6 +1845,7 @@ function render(now) {
 
   for (const t of w.turrets) drawTurretWarning(t, now);
   drawSkillWorld(me);
+  drawSpellAim(me);
   drawChaseMarker(me);
 
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinGround(c);   // 심판 범위 원(챔피언보다 먼저: 바닥 효과)
@@ -1653,6 +1858,8 @@ function render(now) {
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinBlade(c);   // 심판 칼날(챔피언 앞)
   for (const c of w.champs) if (c.aw) drawAwChain(c);                       // 아트록스 W 날아가는 사슬(챔피언 위)
   for (const c of w.champs) if (c.awZone) drawAwTether(c);                  // 충격 지대 중심 → 대상 사슬
+  for (const c of w.champs) if (c.ign && !c.dead && !c.yq) drawIgniteFlames(c);   // 점화 대상: 불꽃 입자(몸 앞)
+  for (const d of w.dummies) if (d.ign) drawIgniteFlames(d);
   drawFx();
 
   // 체력바
@@ -1693,6 +1900,7 @@ function refreshHud() {
   const d = W().dummies[0];
   if (d && d.armor !== lastArmor) { lastArmor = d.armor; $('#tDmArmor').textContent = `더미 방어력: ${d.armor}`; }
   refreshSkills();
+  refreshSpells();
 }
 let last = performance.now();
 function frame(now) {
@@ -1701,7 +1909,8 @@ function frame(now) {
   if (phase === 'play' && session) {
     const me = ME();
     if (me && (me.dead || me.air > 0 || me.pull || me.silence)) for (const k in held) delete held[k];
-    const nowMs = performance.now(); for (const k in held) if (!held[k].show && nowMs - held[k].t > 180) held[k].show = true;
+    if (spLocked(me)) for (const k in heldSp) delete heldSp[k];   // 사망·공중 등: 주문 조준 취소. 침묵은 주문을 막지 않으므로 여기서 지우지 않음
+    const nowMs = performance.now(); for (const h of Object.values(held).concat(Object.values(heldSp))) if (!h.show && nowMs - h.t > 180) h.show = true;
     sendInput();
     session.update(dt);
     handleEvents();
