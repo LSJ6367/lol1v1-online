@@ -201,7 +201,7 @@ button { font: inherit; color: inherit; }
 .code { font-family: var(--display); font-size: clamp(34px, 9vw, 56px); letter-spacing: .28em; color: var(--gold-hi); padding: 2px 22px 2px 30px; margin: 6px 0; border: 1px dashed var(--gold); border-radius: 6px; background: rgba(10,16,23,.7); }
 .hint { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
 .players { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; width: min(560px, 100%); }
-.players li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.players li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .players .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .players .me { color: var(--gold); font-size: 12px; margin-left: 4px; }
 .team { font-size: 12px; padding: 2px 8px; border-radius: 3px; color: #fff; white-space: nowrap; }
@@ -236,8 +236,74 @@ button { font: inherit; color: inherit; }
 .exitRow { margin-top: 8px; }
 @media (max-height: 430px) { .screen { gap: 10px; padding-top: 10px; padding-bottom: 10px; } .code { font-size: 30px; margin: 2px 0; } .panel { padding: 12px; gap: 9px; } .screen h1 { font-size: 24px; } }
 @media (max-height: 430px) { #room { gap: 8px; } #room .hint { display: none; } .players li { padding: 5px 10px; } #roomCards { gap: 8px; } #roomCards .card { padding: 6px 8px; } #roomCards .card .art { height: 52px; } #roomCards .card .art img { max-height: 50px; } #roomCards .card h2 { font-size: 16px; } .countdown { font-size: 22px; } .roomActions .go, .roomActions .ghost { padding: 7px 16px; font-size: 14px; } .resBox { padding: 16px 16px 12px; } .resTitle { font-size: 32px; } }
+/* ---------- 시작 아이템 (DESIGN_ITEMS §2): 선택 카드(혼자 연습 · 대기실), 대기실 줄, 게임 화면의 물약 버튼 · 아이템 칸 · 설명 말풍선 ---------- */
+.setRow { display: grid; gap: 8px; justify-items: center; width: min(560px, 100%); }
+.setRow .setCards { width: 100%; }
+.setH { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 2px 10px; margin: 0; }
+.setH b { font-family: var(--display); font-weight: 400; font-size: 17px; color: var(--gold-hi); }
+.setH span { font-size: 12px; color: var(--muted); }
+.setCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(600px, 100%); }
+@media (max-width: 560px) { .setCards { grid-template-columns: minmax(0, 1fr); } }
+.iset { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 14px; padding: 12px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; transition: border-color .15s, background .15s; }
+.iset:hover { background: var(--panel-hi); }
+.iset[aria-pressed="true"] { border-color: var(--gold); background: var(--panel-hi); box-shadow: 0 0 0 1px var(--gold) inset, 0 6px 22px rgba(0,0,0,.4); }
+.iset:disabled { cursor: default; opacity: .6; }
+.iset:disabled:hover { background: var(--panel); }
+.iset[aria-pressed="true"]:disabled:hover { background: var(--panel-hi); }
+.iset .ico { width: 64px; height: 64px; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, #27384d, #0b1119); border: 1px solid var(--gold); border-radius: 6px; }
+.iset .ico svg { width: 46px; height: 46px; }
+.iset .pots { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.iset .pots svg { width: 16px; height: 16px; flex: none; }
+.iset .isT { display: grid; gap: 3px; min-width: 0; }
+.iset .nm { font-family: var(--display); font-size: 19px; line-height: 1.2; color: var(--gold-hi); }
+.iset .tag { font-style: normal; font-family: var(--body); font-size: 11px; margin-left: 6px; padding: 1px 6px; vertical-align: 2px; border: 1px solid var(--gold); border-radius: 3px; color: var(--gold); }
+.iset .st { font-size: 12.5px; line-height: 1.5; color: var(--text); }
+/* 대기실 줄: 아이콘·글자를 줄여서 가로 화면에서도 두 장이 한 줄에 */
+.iset.sm { grid-template-columns: 50px minmax(0, 1fr); gap: 10px; padding: 8px 10px; }
+.iset.sm .ico { width: 46px; height: 46px; }
+.iset.sm .ico svg { width: 32px; height: 32px; }
+.iset.sm .pots { font-size: 11px; }
+.iset.sm .pots svg { width: 13px; height: 13px; }
+.iset.sm .nm { font-size: 16px; }
+.iset.sm .st { font-size: 11.5px; line-height: 1.4; }
+.players .pset { width: 22px; height: 22px; display: grid; place-items: center; }
+.players .pset svg { width: 100%; height: 100%; }
+@media (max-height: 430px) {
+  .setH span { display: none; }   /* 가로 화면: 대기실 줄 설명 글자는 숨겨 높이를 아낌 */
+  .iset { grid-template-columns: 56px minmax(0, 1fr); gap: 10px; padding: 8px 10px; }
+  .iset .ico { width: 50px; height: 50px; }
+  .iset .ico svg { width: 36px; height: 36px; }
+  .iset .nm { font-size: 16px; }
+  .iset .st { font-size: 11.5px; line-height: 1.4; }
+}
+/* 게임 화면: 물약 버튼은 조이스틱 기준점(쉴 때 자리) 바로 위 왼쪽, 고른 아이템 칸은 그 오른쪽. --pb 아래에서의 높이 · --pl 조이스틱 왼쪽에서 중심까지 · --ps 물약 크기 · --is 아이템 칸 크기 */
+#hud { --pb: 212px; --pl: 65px; --ps: 46px; --is: 40px; }
+#potRow { position: absolute; left: calc(max(24px, env(safe-area-inset-left, 0px)) + var(--pl)); bottom: var(--pb); display: flex; align-items: center; gap: 8px; pointer-events: none; }
+#hud > #potRow { pointer-events: none; }   /* 빈 틈은 조이스틱 영역이 받도록. 버튼·칸만 터치를 받음 */
+#islots { display: flex; gap: 8px; pointer-events: none; }
+.potw { position: relative; width: var(--ps); height: var(--ps); flex: none; }
+.pot { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #4b1119, #14060a); border: 2.5px solid #ff5a6e; box-shadow: 0 3px 12px rgba(0,0,0,.6); color: #ffd0d6; cursor: pointer; touch-action: none; pointer-events: auto; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; transition: transform .08s; }
+.pot:active { transform: scale(.95); }
+.pot .pIco { position: relative; z-index: 1; width: 62%; height: 62%; display: grid; place-items: center; }
+.pot .pIco svg { width: 100%; height: 100%; }
+.pot .pFill { position: absolute; inset: 0; background: conic-gradient(rgba(255,120,140,.55) calc(var(--pf, 0) * 360deg), transparent 0); pointer-events: none; }   /* 마시는 15초 동안 시계 방향으로 차오름 */
+.pot.drink { border-color: #ffa3b1; box-shadow: 0 0 14px rgba(255,90,110,.65); }
+.pot.off { background: radial-gradient(circle at 40% 35%, #2b2d33, #0d0e11); border-color: #5b6470; color: #7d8590; }   /* 0개 또는 마시는 중: 회색 */
+.pot.off .pIco { filter: grayscale(1); opacity: .5; }
+.potN { position: absolute; right: -5px; bottom: -4px; z-index: 2; min-width: 19px; height: 19px; padding: 0 5px; display: grid; place-items: center; border-radius: 10px; background: #05080b; border: 1.5px solid #ff5a6e; font-family: var(--display); font-size: 12px; line-height: 1; color: #ffe3e7; font-variant-numeric: tabular-nums; pointer-events: none; }
+.islot { width: var(--is); height: var(--is); flex: none; display: grid; place-items: center; border-radius: 7px; background: linear-gradient(180deg, #223245, #0c131c); border: 1.5px solid var(--gold); box-shadow: 0 3px 10px rgba(0,0,0,.55); cursor: default; touch-action: none; pointer-events: auto; -webkit-touch-callout: none; }   /* 패시브 아이템은 네모 칸(물약의 둥근 버튼과 구분) */
+.islot svg { width: 76%; height: 76%; }
+#itemTip { z-index: 5; position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(var(--pb) + var(--ps) + 10px); width: min(280px, calc(100% - 32px)); max-height: calc(100% - 90px); overflow: auto; padding: 12px 14px; background: rgba(14,22,31,.96); border: 1px solid var(--gold); border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: none; }
+#itemTip h3 { margin: 0 0 6px; font-family: var(--display); font-weight: 400; font-size: 17px; color: var(--gold-hi); }
+#itemTip h3 small { margin-left: 8px; font-family: var(--body); font-size: 11px; color: var(--gold); letter-spacing: .04em; }
+#itemTip p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.55; }
+#itemTip .rows { margin: 0; }
+@media (max-height: 430px) { #hud { --pb: 170px; --pl: 52px; --ps: 40px; --is: 36px; } }
 .buildVer { margin: 0; font-size: 12px; color: var(--muted, #8a93a0); letter-spacing: .04em; text-align: center; }
 .buildVer b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gold-hi, #f0e6d2); }
+#potRow { transition: opacity .15s; }
+#potRow.under { opacity: .35; }
+#potRow.under:active, #potRow.under:focus-within { opacity: 1; }
 </style>
 
 <div id="app">
@@ -252,7 +318,21 @@ button { font: inherit; color: inherit; }
     <div class="cards" id="cards"></div>
     <button class="go" id="goBtn" type="button">맵 입장</button>
     <button class="ghost" id="btnBackLobby" type="button">로비로 돌아가기</button>
-    <p class="hint">조작: 왼쪽 조이스틱으로 이동, 오른쪽 평타 버튼으로 공격. 스킬은 모두 0레벨이라 ▲ 버튼으로 스킬 포인트 6개를 먼저 쓰세요. 스킬 버튼은 탭하면 바로 시전, 길게 누르면 범위가 보이고 손을 떼면 시전됩니다. PC: WASD 이동, Space 공격, 1~4 스킬, 5 점화, 6 또는 F 점멸, Shift+1~4 스킬 레벨업. 가로 화면을 권장합니다.</p>
+    <p class="hint">조작: 왼쪽 조이스틱으로 이동, 오른쪽 평타 버튼으로 공격. 스킬은 모두 0레벨이라 ▲ 버튼으로 스킬 포인트 6개를 먼저 쓰세요. 스킬 버튼은 탭하면 바로 시전, 길게 누르면 범위가 보이고 손을 떼면 시전됩니다. PC: WASD 이동, Space 공격, 1~4 스킬, 5 점화, 6 또는 F 점멸, 7 또는 H 물약, Shift+1~4 스킬 레벨업. 가로 화면을 권장합니다.</p>
+  </section>
+
+  <section id="itemSel" class="screen" aria-label="시작 아이템 선택" hidden>
+    <header>
+      <div class="eyebrow">1대1 · 1인 테스트</div>
+      <h1>시작 아이템</h1>
+      <p class="sub" id="itemSub">게임 시작 전에 고르세요</p>
+    </header>
+    <div class="setCards" id="itemCards"></div>
+    <div class="roomActions">
+      <button class="go" id="itemGo" type="button">게임 시작</button>
+      <button class="ghost" id="btnBackItem" type="button">챔피언 다시 고르기</button>
+    </div>
+    <p class="hint">체력 물약 2개는 두 세트 모두 같아요. 게임 중 물약은 조이스틱 위 버튼(PC: 7 또는 H)으로 마십니다.</p>
   </section>
 
   <section id="lobby" class="screen" aria-label="로비" hidden>
@@ -285,6 +365,10 @@ button { font: inherit; color: inherit; }
     <ul class="players" id="players"></ul>
     <p class="countdown" id="countdown" hidden></p>
     <div class="cards" id="roomCards"></div>
+    <div class="setRow" id="roomSet" aria-label="시작 아이템">
+      <p class="setH"><b>시작 아이템</b><span>준비 전까지 바꿀 수 있어요</span></p>
+      <div class="setCards" id="roomSetCards"></div>
+    </div>
     <div class="roomActions">
       <button class="go" id="btnReady" type="button">준비</button>
       <button class="ghost" id="btnLeave" type="button">나가기</button>
@@ -307,6 +391,22 @@ button { font: inherit; color: inherit; }
   <div id="hud" hidden>
     <div id="joyZone" aria-hidden="true"></div>
     <div id="joy" role="application" aria-label="이동 조이스틱"><div id="knob"></div></div>
+    <!-- 물약 버튼(조이스틱 기준점 바로 위)과 고른 아이템 칸(그 오른쪽). joyZone 뒤에 있어서 여기 닿는 터치는 조이스틱이 받지 않음 -->
+    <div id="potRow">
+      <div class="potw">
+        <button id="potBtn" class="pot" type="button" aria-label="체력 물약 사용. 단축키 7 또는 H. 길게 누르면 설명">
+          <span class="pFill" aria-hidden="true"></span>
+          <span class="pIco" id="potIco" aria-hidden="true"></span>
+        </button>
+        <span class="potN" id="potN" aria-hidden="true">2</span>
+      </div>
+      <div id="islots"></div>
+    </div>
+    <aside id="itemTip" hidden role="tooltip">
+      <h3 id="itemTipH"></h3>
+      <p id="itemTipP"></p>
+      <dl class="rows" id="itemTipRows"></dl>
+    </aside>
     <button id="statBtn" type="button" aria-label="내 스탯 보기" aria-expanded="false" aria-controls="statPanel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
     </button>

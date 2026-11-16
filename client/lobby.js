@@ -24,17 +24,18 @@ const IS_P2P = !!(window.google && google.script && google.script.run);
 const NetImpl = IS_P2P ? window.P2PNet : window.Net;
 const P2P_STATUS = '구글 스크립트 모드 · 같은 와이파이에서 방장 기기가 서버가 돼요';
 
-const scr = { lobby: $('#lobby'), room: $('#room'), select: $('#select') };
+const scr = { lobby: $('#lobby'), room: $('#room'), select: $('#select'), item: $('#itemSel') };
 let connected = false;
 let room = null;        // 마지막 room 메시지
 let session = null;     // 진행 중인 OnlineSession
 let connectedNick = null; // 서버에 알려준 닉네임
 
-/* 'lobby' | 'room' | 'select' | 'game'(숨김 전체: Game 화면이 보임) */
+/* 'lobby' | 'room' | 'select' | 'item'(혼자 연습의 시작 아이템) | 'game'(숨김 전체: Game 화면이 보임) */
 function showScreen(name) {
   scr.lobby.hidden = name !== 'lobby';
   scr.room.hidden = name !== 'room';
   scr.select.hidden = name !== 'select';
+  scr.item.hidden = name !== 'item';
 }
 
 let toastT = 0;
@@ -91,8 +92,23 @@ function leaveRoom() {   // 방 나가기 → 로비
 
 /* ---------- 대기실 ---------- */
 const myPlayer = () => (room && room.players) ? room.players.find(p => p.pid === NetImpl.pid) || null : null;
-const roomCards = $('#roomCards');
+const roomCards = $('#roomCards'), roomSetCards = $('#roomSetCards');
 roomCards.innerHTML = $('#cards').innerHTML;   // 챔피언 카드는 client.js 것과 같은 모양
+
+/* 대기실의 시작 아이템 줄: 순서 = 내 챔피언의 선택지 순서(챔피언이 바뀌면 다시 그림), 강조 = 방 상태의 내 set. 준비 전에만 누를 수 있음 */
+let roomSetSig = '';
+function renderRoomSet(me, ready) {
+  const champ = (me && me.champ) || 'darius', sel = (me && me.set) || Core.startSetOrder(champ)[0];
+  const sig = [champ, sel, !!me, !!ready].join('|');
+  if (sig === roomSetSig) return;
+  roomSetSig = sig;
+  roomSetCards.innerHTML = ItemUI.setCardsHtml(champ, sel, { compact: true, disabled: !me || ready });
+}
+roomSetCards.addEventListener('click', e => {
+  const b = e.target.closest('.iset'), me = myPlayer();
+  if (!b || b.disabled || !me || me.ready) return;
+  NetImpl.send({ t: 'set', set: b.dataset.set });
+});
 
 function renderRoom() {
   if (!room) return;
@@ -102,6 +118,7 @@ function renderRoom() {
   $('#players').innerHTML = (room.players || []).map(p => `<li>
       <span class="team t${p.team}">${TEAM_NAME[p.team] || ''}</span>
       <span class="nm">${esc(p.name)}${p.pid === NetImpl.pid ? ' <span class="me">(나)</span>' : ''}</span>
+      <span class="pset" title="${esc(ItemUI.setName(p.set))}">${ItemUI.miniIcon(p.set)}</span>
       <span class="ch">${CHAMP(p.champ)}</span>
       <span class="rdy${p.ready ? ' on' : ''}">${p.ready ? '준비 완료' : '대기 중'}</span>
     </li>`).join('');
@@ -109,6 +126,7 @@ function renderRoom() {
     c.setAttribute('aria-pressed', String(!!me && c.dataset.key === me.champ));
     c.disabled = ready;   // 준비 상태에서는 챔피언 변경 불가
   });
+  renderRoomSet(me, ready);
   $('#btnReady').textContent = ready ? '준비 취소' : '준비';
   $('#btnReady').disabled = !me;
   const cd = $('#countdown');
@@ -153,8 +171,23 @@ $('#nick').addEventListener('change', e => { saveNick(e.target.value.trim()); })
 /* ---------- 오프라인 ---------- */
 $('#btnOffline').addEventListener('click', () => { showScreen('select'); });
 $('#btnBackLobby').addEventListener('click', () => { Game.stop(); showScreen('lobby'); });
-$('#goBtn').addEventListener('click', () => {
-  const local = new LocalSession([{ id: 'p1', key: Game.selected(), team: 0 }], 'p1');
+/* 혼자 연습: 챔피언 선택 → 시작 아이템(두 장, 첫 번째 = 기본) → 게임 시작 */
+let offSet = null;   // 고른 시작 아이템 세트. 단계에 들어올 때마다 첫 번째 선택지로 맞춤
+function openItemStep() {
+  offSet = Core.startSetOrder(Game.selected())[0];
+  $('#itemSub').textContent = `${CHAMP(Game.selected())} · 게임 시작 전에 고르세요`;
+  $('#itemCards').innerHTML = ItemUI.setCardsHtml(Game.selected(), offSet, {});
+  showScreen('item');
+}
+$('#goBtn').addEventListener('click', openItemStep);
+$('#itemCards').addEventListener('click', e => {
+  const b = e.target.closest('.iset'); if (!b) return;
+  offSet = b.dataset.set;
+  $('#itemCards').querySelectorAll('.iset').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.set === offSet)));
+});
+$('#btnBackItem').addEventListener('click', () => showScreen('select'));
+$('#itemGo').addEventListener('click', () => {
+  const local = new LocalSession([{ id: 'p1', key: Game.selected(), team: 0, set: offSet }], 'p1');
   showScreen('game');
   Game.start(local, { onExit: () => { Game.stop(); showScreen('select'); } });
 });

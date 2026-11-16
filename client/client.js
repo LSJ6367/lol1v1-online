@@ -143,6 +143,7 @@ window.addEventListener('keydown', e => {
   if (MOVE_KEYS[e.code]) { input.keys.add(MOVE_KEYS[e.code]); e.preventDefault(); }
   else if (/^Digit[1-4]$/.test(e.code)) { const k = SKILL_KEYS[+e.code.slice(5) - 1]; if (e.shiftKey) levelUp(k); else castSkill(k, autoAng(k === 'e')); e.preventDefault(); }
   else if (SPELL_BY_CODE[e.code]) { if (!e.repeat) castSpell(SPELL_BY_CODE[e.code]); e.preventDefault(); }   // 누르고 있어도 한 번만(반복 입력은 쿨타임 문구만 늘어남)
+  else if (e.code === 'Digit7' || e.code === 'KeyH') { if (!e.repeat) usePotion(); e.preventDefault(); }   // 체력 물약 (DESIGN_ITEMS I8)
   else if (e.code === 'Space' || e.code === 'KeyJ') { input.atkKey = true; atk.classList.add('down'); e.preventDefault(); }
 });
 window.addEventListener('keyup', e => {
@@ -150,6 +151,48 @@ window.addEventListener('keyup', e => {
   else if (e.code === 'Space' || e.code === 'KeyJ') { input.atkKey = false; if (!input.atkTouch) atk.classList.remove('down'); }
 });
 window.addEventListener('blur', () => { input.keys.clear(); input.atkKey = false; });
+
+/* =====================================================================
+   시작 아이템 (DESIGN_ITEMS §2): 아이콘 · 선택 카드 · 설명 문구. 게임 HUD(아래), 혼자 연습 선택 화면과 대기실(lobby.js)이 같이 씀.
+   수치·규칙은 Core(ITEMS · startSetOrder · itemDefs)에서 읽고, 여기서는 그리기만 함
+   ===================================================================== */
+const ITEM_ICON = {   // 공통 모양: 선 굵기 일정, 둥근 끝, 금색 · 붉은색 포인트 한두 개
+  doranBlade: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 14.3 12.2 12 14.3 9.7 12.2z" fill="#e8f1fb" stroke="#8ea8c2" stroke-width="1.2"/><path d="M12 4v8.4" stroke="#fff" stroke-width=".8" opacity=".8"/><path d="M5.6 14.3h12.8" stroke="#d9b35a" stroke-width="2.4"/><path d="M12 16.5V20" stroke="#6b4a2b" stroke-width="2.2"/><circle cx="12" cy="21.4" r="1.5" fill="#d9b35a" stroke="#7a5300" stroke-width=".8"/></svg>',
+  doranShield: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-linecap="round"><circle cx="12" cy="12" r="9.1" fill="#2b4d72" stroke="#d9b35a" stroke-width="2"/><circle cx="12" cy="12" r="6" fill="#3f6b97" stroke="#9ec3e6" stroke-width=".9"/><path d="M12 6.2v11.6M6.2 12h11.6" stroke="#9ec3e6" stroke-width=".7" opacity=".55"/><circle cx="12" cy="12" r="2.2" fill="#f0c75e" stroke="#7a5300" stroke-width=".8"/><path d="M7.4 8.6a6.2 6.2 0 0 1 3-2.2" stroke="#fff" stroke-width="1" opacity=".5"/></svg>',
+  potion: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9.4 3.2h5.2v3.4H9.4z" fill="#a8763e" stroke="#e7c48a" stroke-width=".9"/><path d="M9.6 6.6v2.5C6.4 10.2 5 12.6 5 15.6 5 18.9 7.9 21 12 21s7-2.1 7-5.4c0-3-1.4-5.4-4.6-6.5V6.6z" fill="#d4182f" stroke="#ffb3ba" stroke-width="1.2"/><path d="M7.6 15.2c.4-1.5 1.5-2.5 2.9-3" stroke="#ffd0d6" stroke-width="1.2"/><circle cx="14.8" cy="17.2" r=".9" fill="#ffd0d6" stroke="none" opacity=".7"/></svg>'
+};
+const SET_ITEM = { blade: 'doranBlade', shield: 'doranShield' };   // 세트 키(방 메시지 set) → 패시브 아이템 키. 물약 2개는 세트마다 같이 붙음
+const itemDef = key => Core.itemDefs([key])[0];
+const itemName = key => (Core.ITEMS[key] ? Core.ITEMS[key].name : key);
+const itemSum = (me, k) => (me.items || []).reduce((a, key) => a + ((Core.ITEMS[key] && Core.ITEMS[key][k]) || 0), 0);   // 가진 아이템의 수치 합(체력·재생 등)
+/* 카드·말풍선용 스탯 줄: 공격력 +10 · 체력 +80 · 모든 피해 흡혈 2.5% · (효과 문장들). 효과 없음이면 생략 */
+function itemLine(d) {
+  const s = d.stats, parts = [];
+  if (s.ad) parts.push(`공격력 +${s.ad}`);
+  if (s.hp) parts.push(`체력 +${s.hp}`);
+  if (s.omni) parts.push(`모든 피해 흡혈 ${+(s.omni * 100).toFixed(1)}%`);
+  if (d.text && d.text !== '효과 없음') parts.push(...d.text.replace(/\.$/, '').split('. '));
+  return parts;
+}
+function setCardHtml(set, o) {
+  const key = SET_ITEM[set], d = itemDef(key);
+  return `<button type="button" class="iset${o.compact ? ' sm' : ''}" data-set="${set}" aria-pressed="${o.sel ? 'true' : 'false'}"${o.disabled ? ' disabled' : ''}>` +
+    `<span class="ico">${ITEM_ICON[key]}</span>` +
+    `<span class="isT"><span class="nm">${d.name}${o.first ? '<em class="tag">기본</em>' : ''}</span>` +
+    `<span class="pots">${ITEM_ICON.potion}<span>체력 물약 ×2</span></span>` +
+    `<span class="st">${itemLine(d).join(' · ')}</span></span>` +
+    '</button>';
+}
+/* 챔피언의 선택지 두 장(첫 번째 = 왼쪽 = 기본). sel = 고른 세트 키 */
+function setCardsHtml(champKey, sel, o) {
+  o = o || {};
+  return Core.startSetOrder(champKey).map((set, i) => setCardHtml(set, { sel: set === sel, first: i === 0, compact: !!o.compact, disabled: !!o.disabled })).join('');
+}
+window.ItemUI = {   // lobby.js가 쓰는 공개 API
+  setCardsHtml,
+  setName: set => (SET_ITEM[set] ? itemDef(SET_ITEM[set]).name : ''),
+  miniIcon: set => (SET_ITEM[set] ? ITEM_ICON[SET_ITEM[set]] : '')
+};
 
 /* =====================================================================
    HUD / 스탯 패널 / 선택 화면
@@ -167,7 +210,8 @@ statBtn.addEventListener('click', () => {
 const ROWS = [
   ['lv', '레벨'], ['hp', '체력'], ['regen', '체력 재생'], ['mana', '마나'], ['mregen', '마나 재생'],
   ['ad', '공격력'], ['ap', '주문력'], ['as', '공격속도'], ['armor', '방어력'], ['mr', '마법저항력'],
-  ['pen', '물리관통력'], ['omni', '모든 피해 흡혈'], ['ten', '강인함'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트']
+  ['pen', '물리관통력'], ['omni', '모든 피해 흡혈'], ['ten', '강인함'], ['range', '사거리'], ['ms', '이동속도'], ['sp', '스킬 포인트'],
+  ['items', '아이템']
 ];
 // 강인함·모든 피해 흡혈은 0보다 클 때만 보임(refreshPanel이 줄 전체를 켜고 끔)
 $('#spRows').innerHTML = ROWS.map(([k, l]) => { const h = k === 'ten' || k === 'omni'; return `<dt${h ? ' hidden' : ''}>${l}</dt><dd id="sp_${k}"${h ? ' hidden' : ''}>-</dd>`; }).join('');
@@ -179,9 +223,10 @@ function refreshPanel() {
   const sh = Core.shieldOf(me);
   // 아트록스 R 중에는 체력 줄 아래 '피의 샘' 남은 시간(체력바 아래 타이머와 같은 값, 지속 시간이 늘면 그만큼 늘어남)
   const blood = me.key === 'aatrox' && me.ar ? ` · 피의 샘 ${fmt(Math.max(0, me.ar.dur - me.ar.t), 1)}초` : '';
-  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}${sh > 0 ? ` · 보호막 ${fmt(sh, 0)}` : ''}${blood}`);
+  const itemHp = itemSum(me, 'hp'), itemRegen = itemSum(me, 'regen5');   // 아이템으로 더해진 체력·재생은 괄호로 (도란의 검 +80, 도란의 방패 +110 · 재생 +4)
+  set('hp', `${fmt(me.hp, 0)} / ${fmt(s.maxHp, 0)}${itemHp ? ` (+${fmt(itemHp, 0)})` : ''}${sh > 0 ? ` · 보호막 ${fmt(sh, 0)}` : ''}${blood}`);
   const hm = Core.healMul(me), hmTxt = hm > 1 ? ` (회복 +${fmt((hm - 1) * 100, 0)}%)` : '';   // 세계의 종결자 회복 증가(모든 회복에 곱해짐)
-  set('regen', `${fmt(s.regen, 2)} /5초${hmTxt}`);
+  set('regen', `${fmt(s.regen, 2)} /5초${itemRegen ? ` (+${fmt(itemRegen, 0)})` : ''}${hmTxt}`);
   const noMana = !(s.maxMana > 0);   // 마나가 없는 챔피언(가렌)
   set('mana', noMana ? '없음' : `${fmt(me.mana, 0)} / ${fmt(s.maxMana, 0)}`);
   set('mregen', noMana ? '없음' : `${fmt(s.manaRegen, 2)} /5초`);
@@ -200,6 +245,7 @@ function refreshPanel() {
   if (omOn) set('omni', `${+(om * 100).toFixed(1)}%` + (eOn ? ` (챔피언 대상 +${+(Core.aatroxEOmni(me) * 100).toFixed(2)}%)` : ''));
   const rb = (me.wBuff ? SK.w.rangeBonus : 0) + (me.key === 'aatrox' && me.apCd <= 0 ? Core.AATROX_PASSIVE.range : 0);   // 평타 사거리 보너스: 다리우스 W, 아트록스 사신 태세 준비(+50)
   set('pen', `${fmt(Core.penPct(me), 0)}%`); set('range', rb ? `${s.range + rb} 유닛 (+${rb})` : `${s.range} 유닛`); set('ms', Math.abs(cms - s.ms) > 1e-9 ? `${fmt(cms, 0)} (+${fmt(cms - s.ms, 0)})` : String(s.ms)); set('sp', String(me.sp));
+  set('items', [...(me.items || []).map(itemName), `물약 ${me.potions | 0}개`].join(' · '));   // 아이템 이름 + 남은 물약 개수
 }
 setInterval(refreshPanel, 120);
 
@@ -289,6 +335,96 @@ pBtn.addEventListener('pointerdown', e => { tipId = e.pointerId; pBtn.setPointer
 const tipOff = e => { if (e.pointerId !== tipId) return; tipId = null; pTip.hidden = true; };
 pBtn.addEventListener('pointerup', tipOff); pBtn.addEventListener('pointercancel', tipOff);
 pBtn.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- 체력 물약 버튼 · 아이템 칸 · 설명 말풍선 (DESIGN_ITEMS §2 · I5 · I8). 물약: 짧게 누르면 마심, 길게(350ms) 누르면 설명.
+   아이템 칸(패시브): 누르면 설명, 짧게 누르면 2.6초 남고 길게 누르면 손을 뗄 때 사라짐 ---------- */
+const POT = Core.ITEMS.potion, DS = Core.ITEMS.doranShield;
+const potBtn = $('#potBtn'), potN = $('#potN'), islots = $('#islots');
+const itemTip = $('#itemTip'), itemTipH = $('#itemTipH'), itemTipP = $('#itemTipP'), itemTipRows = $('#itemTipRows');
+const LONG_MS = 350, TAP_MS = 300, TIP_KEEP_MS = 2600;
+let potPress = null, slotPress = null, tipKey = null, tipHideT = 0, tipSig = '', slotSig = '', potFill = '0', potLastN = -1;
+$('#potIco').innerHTML = ITEM_ICON.potion;
+/* 물약 사용 명령. 0개·마시는 중이어도 보냄 → 코어가 '없음' · '사용 중' 글자를 나에게만 띄움. 죽었으면 보내지 않음 */
+function usePotion() {
+  const me = ME(); if (!me || phase !== 'play' || me.dead) return;
+  session.send({ type: 'item', id: me.id, item: 'potion' });
+}
+function showItemTip(key, keep) {
+  tipKey = key; tipSig = ''; clearTimeout(tipHideT); itemTip.hidden = false; refreshItemTip();
+  if (keep) tipHideT = setTimeout(hideItemTip, TIP_KEEP_MS);
+}
+function hideItemTip() { clearTimeout(tipHideT); tipKey = null; itemTip.hidden = true; }
+function resetItemUi() {
+  if (potPress) { clearTimeout(potPress.timer); potPress = null; }
+  slotPress = null; hideItemTip();
+}
+/* 말풍선 내용: 이름 · 패시브/액티브 · 설명(Core.itemDefs의 text). 스탯 줄 · 물약 개수 · 도란의 방패 회복 남은 시간 */
+function itemTipInfo(key, me) {
+  const d = itemDef(key), rows = [];
+  if (key === 'potion') {
+    rows.push(['남은 개수', `${me.potions | 0}개`]);
+    if (me.potion) rows.push(['마시는 중', `${fmt(Math.max(0, POT.dur - me.potion.t), 1)}초 남음`]);
+  } else {
+    if (d.stats.ad) rows.push(['공격력', `+${d.stats.ad}`]);
+    if (d.stats.hp) rows.push(['체력', `+${d.stats.hp}`]);
+    if (d.stats.omni) rows.push(['모든 피해 흡혈', `${+(d.stats.omni * 100).toFixed(1)}%`]);
+    if (key === 'doranShield' && me.dsRec > 0) rows.push(['회복 남은 시간', `${fmt(me.dsRec, 1)}초 · 초당 ${fmt(DS.recover / DS.recoverT, 1)}`]);
+  }
+  return { name: d.name, tag: d.active ? '액티브 · 소모품' : '패시브', text: d.text, rows };
+}
+function refreshItemTip() {
+  const me = ME(); if (!tipKey || !me) return;
+  const I = itemTipInfo(tipKey, me), sig = JSON.stringify(I);
+  if (sig === tipSig) return; tipSig = sig;
+  itemTipH.textContent = I.name;
+  const tg = document.createElement('small'); tg.textContent = I.tag; itemTipH.appendChild(tg);
+  itemTipP.textContent = I.text; itemTipP.hidden = !I.text;
+  itemTipRows.innerHTML = I.rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  itemTipRows.hidden = !I.rows.length;
+}
+potBtn.addEventListener('pointerdown', e => {
+  e.preventDefault(); if (potPress) return;   // 손가락 하나
+  potBtn.setPointerCapture(e.pointerId);
+  potPress = { id: e.pointerId, long: false, timer: setTimeout(() => { if (potPress) { potPress.long = true; showItemTip('potion', false); } }, LONG_MS) };
+});
+const potEnd = (e, cancel) => {
+  if (!potPress || e.pointerId !== potPress.id) return;
+  const p = potPress; potPress = null; clearTimeout(p.timer);
+  if (p.long) { hideItemTip(); return; }   // 길게 누름 = 설명만 보이고 마시지 않음
+  if (!cancel) usePotion();                // 짧게 누름 = 마심
+};
+potBtn.addEventListener('pointerup', e => potEnd(e, false));
+potBtn.addEventListener('pointercancel', e => potEnd(e, true));
+potBtn.addEventListener('lostpointercapture', e => potEnd(e, true));
+potBtn.addEventListener('contextmenu', e => e.preventDefault());
+islots.addEventListener('pointerdown', e => {
+  const s = e.target.closest('.islot'); if (!s || slotPress) return;
+  slotPress = { id: e.pointerId, key: s.dataset.item, t: performance.now() };
+  s.setPointerCapture(e.pointerId); showItemTip(slotPress.key, false); e.preventDefault();
+});
+const slotEnd = e => {
+  if (!slotPress || e.pointerId !== slotPress.id) return;
+  const p = slotPress; slotPress = null;
+  if (performance.now() - p.t < TAP_MS) showItemTip(p.key, true); else hideItemTip();
+};
+islots.addEventListener('pointerup', slotEnd); islots.addEventListener('pointercancel', slotEnd); islots.addEventListener('lostpointercapture', slotEnd);
+islots.addEventListener('contextmenu', e => e.preventDefault());
+/* 매 프레임: 물약 개수·마시는 중(회색 · 15초 채움) · 아이템 칸(고른 아이템이 바뀔 때만 다시 그림) · 열린 말풍선 */
+function refreshItems() {
+  const me = ME(); if (!me) return;
+  const items = me.items || [], sig = items.join(',');
+  if (sig !== slotSig) {
+    slotSig = sig;
+    islots.innerHTML = items.map(k => `<span class="islot" data-item="${k}" role="img" aria-label="${itemName(k)}">${ITEM_ICON[k] || ''}</span>`).join('');
+  }
+  const n = me.potions | 0, drink = !!me.potion, off = !!me.dead || n <= 0 || drink;
+  setTxt(potN, String(n));
+  potBtn.classList.toggle('off', off); potBtn.classList.toggle('drink', drink);
+  const f = drink ? clamp01(me.potion.t / POT.dur).toFixed(3) : '0';
+  if (f !== potFill) { potFill = f; potBtn.style.setProperty('--pf', f); }
+  if (n !== potLastN) { potLastN = n; potBtn.setAttribute('aria-label', `체력 물약 사용. 남은 개수 ${n}개. 단축키 7 또는 H. 길게 누르면 설명`); }
+  if (tipKey) refreshItemTip();
+}
 
 /* ---------- 스킬 버튼 (탭: 즉시 시전 / 길게 누름: 범위 표시 후 손을 떼면 시전) ---------- */
 const skCancel = $('#skCancel');
@@ -520,6 +656,7 @@ function clearInputs() {
   for (const k in held) delete held[k];
   for (const k in heldSp) delete heldSp[k];
   lastSent = '';
+  resetItemUi();
 }
 window.Game = {
   start(sess, opts) {
@@ -550,7 +687,7 @@ window.Game = {
    코어 이벤트 → 화면 효과
    ===================================================================== */
 const FX_LIFE = { blink: 0.36, yslash: 0.22, gsword: 0.9, aqHit: 0.35,
-  awFire: 0.3, awHit: 0.45, awPull: 0.4, awMiss: 0.35, aeDash: 0.4, arStart: 0.7, ignite: 0.42, flash: 0.32 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초). awZone은 상태(c.awZone)로 그려서 수명 없이 무시
+  awFire: 0.3, awHit: 0.45, awPull: 0.4, awMiss: 0.35, aeDash: 0.4, arStart: 0.7, ignite: 0.42, flash: 0.32, potion: 0.7 };   // 코어가 수명(life)을 주지 않는 이펙트의 기본 수명(초). awZone은 상태(c.awZone)로 그려서 수명 없이 무시
 /* 가렌 결정타 강화 평타 판별: 직전 프레임에 강화(gq)가 있었고 이번 프레임에 사라졌으면 그 평타가 강화 평타(클라이언트에서 추적) */
 const gqWas = new Map();
 function garenEmpowered() { return W().champs.some(c => c.key === 'garen' && gqWas.get(c.id) && !c.gq); }
@@ -701,6 +838,15 @@ function drawChampBar(c, cx, bottomY) {
     ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(label, x0 + w / 2, by + BLOOD_H / 2 + 0.5);
     ctx.fillStyle = '#ffd6da'; ctx.fillText(label, x0 + w / 2, by + BLOOD_H / 2 + 0.5);
   }
+  // 도란의 방패 회복 중(나에게만): 체력 칸 끝에 옅은 초록 빛이 맥동(DESIGN_ITEMS §2)
+  const me0 = ME();
+  if (c.dsRec > 0 && !c.dead && me0 && c.id === me0.id && hpX > 0) {
+    const ex = x0 + Math.min(w, hpX), a = 0.3 + 0.2 * Math.sin(clockT * 5), L = Math.min(14, ex - x0);
+    const sg = ctx.createLinearGradient(ex - L, 0, ex, 0);
+    sg.addColorStop(0, 'rgba(120,255,170,0)'); sg.addColorStop(1, `rgba(150,255,190,${a.toFixed(3)})`);
+    ctx.fillStyle = sg; ctx.fillRect(ex - L, y0, L, h);
+    ctx.fillStyle = `rgba(200,255,220,${(a + 0.1).toFixed(3)})`; ctx.fillRect(ex - 1, y0, 1.5, h);
+  }
   drawLevelBadge(x0 - 4, y0 + h / 2, c.level);
 }
 function drawTurretBar(t) {
@@ -790,6 +936,36 @@ function drawSelfInfo(me) {
   if (red > 0) { const t = `피해 감소 ${red}%`; ctx.fillStyle = '#b9ffcf'; ctx.strokeText(t, x, y0 + 16); ctx.fillText(t, x, y0 + 16); }
   if (me.wuju > 0) { const t = `우주류 검술 ${fmt(me.wuju, 1)}초`, ty = red > 0 ? y0 + 27 : y0 + 16; ctx.fillStyle = '#ffe27a'; ctx.strokeText(t, x, ty); ctx.fillText(t, x, ty); }   // 발밑(머리 위는 상대 체력 정보와 겹침)
 }
+/* ---------- 체력 물약 효과 (모두에게 보임). 마시는 중: 분홍빛 회복 빛(몸 뒤) + 붉은 십자가가 천천히 떠오름(몸 앞).
+   마시기 시작한 순간(fx 'potion'): 붉은 빛이 퍼지고 십자가 6개가 바깥으로 흩어짐 ---------- */
+function healCross(x, y, s, a) {   // 붉은 십자가 한 개: s = 가로·세로 길이(px), 굵기는 s의 0.36, 가운데 밝은 점
+  const t = s * 0.36;
+  ctx.fillStyle = `rgba(255,88,116,${a.toFixed(3)})`;
+  ctx.fillRect(x - s / 2, y - t / 2, s, t); ctx.fillRect(x - t / 2, y - s / 2, t, s);
+  ctx.fillStyle = `rgba(255,214,222,${(a * 0.8).toFixed(3)})`; ctx.fillRect(x - t / 4, y - t / 4, t / 2, t / 2);
+}
+function drawPotionBack(c, x, y, sw, sh, lift) {
+  const cy = y - lift - sh * 0.5, pu = 1 + 0.05 * Math.sin(clockT * 5);
+  auraGlow(x, cy, sh * 0.85 * pu, 0.62, '255,100,130', 0.55);
+}
+function drawPotionFront(c, x, y, sw, sh, lift) {
+  for (let i = 0; i < 4; i++) {
+    const ph = (clockT * 0.5 + i / 4) % 1, qx = x + Math.sin(i * 2.9 + clockT * 1.6) * sw * 0.3, qy = y - lift - ph * sh * 0.95;
+    healCross(qx, qy, 5.6 + 2.2 * (1 - ph), 0.95 * Math.sin(ph * Math.PI));
+  }
+}
+function drawPotionFx(f, p) {   // 마시기 시작(0.7초): 몸 가운데에서 붉은 빛이 퍼지고 십자가가 흩어짐
+  const u = Core.champOf(W(), f.id); if (!u) return;
+  const [x, y] = P2(u), cy = y - spriteH(u) * 0.5, e = 1 - (1 - p) * (1 - p), fa = 1 - p, R = 10 + 30 * e;
+  ctx.globalAlpha = 1;
+  const g = ctx.createRadialGradient(x, cy, 1, x, cy, R);
+  g.addColorStop(0, `rgba(255,205,215,${(0.7 * fa).toFixed(3)})`); g.addColorStop(0.5, `rgba(255,90,120,${(0.36 * fa).toFixed(3)})`); g.addColorStop(1, 'rgba(255,60,90,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, cy, R, 0, 7); ctx.fill();
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3 + 0.5, d = 8 + 26 * e;
+    healCross(x + Math.cos(a) * d, cy + Math.sin(a) * d * 0.6 - p * 10, 7 - 2 * p, 0.95 * fa);
+  }
+}
 function drawChamp(c) {
   const [x, y] = P2(c);
   const img = c.key === 'aatrox' && c.ar ? imgs.aatrox_r : imgs[c.key], sh = spriteH(c), sw = sh * img.width / img.height, ax = spriteAx(c);   // 세계의 종결자 중에는 날개 모습
@@ -805,6 +981,7 @@ function drawChamp(c) {
   if (c.key === 'garen' && !c.dead) drawGarenBack(c, x, y, sw, sh, lift, vx, vy);
   if (c.key === 'aatrox' && !c.dead && c.apCd <= 0 && !c.ar) aatroxReadyBack(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 붉은 기운(뒤). R 중에는 날개 모습이라 생략
   if (c.key === 'aatrox' && !c.dead && c.ar) drawBloodAuraBack(x, y, sw, sh, lift);   // 세계의 종결자 아우라(뒤)
+  if (c.potion && !c.dead) drawPotionBack(c, x, y, sw, sh, lift);                       // 체력 물약 마시는 중: 회복 빛(뒤)
   const bob = c.moving && !c.dead ? Math.abs(Math.sin(clockT * 11)) * 1.6 : 0;
   const lg = Math.sin(c.lunge * Math.PI) * 4, fw = pose ? pose.fwd : 0;   // fw: Q 시전 중 앞으로 한 걸음(조준 방향)
   ctx.save();
@@ -818,6 +995,7 @@ function drawChamp(c) {
   ctx.drawImage(img, -ax * sw, -sh, sw, sh);
   ctx.restore();
   if (!c.dead) drawAuraFront(c, x, y, sw, sh, lift);
+  if (c.potion && !c.dead) drawPotionFront(c, x, y, sw, sh, lift);                      // 체력 물약 마시는 중: 떠오르는 십자가(앞)
   if (c.key === 'aatrox' && !c.dead && c.apCd <= 0 && !c.ar) aatroxReadyFront(c, x, y, sw, sh, lift);   // 사신 태세 준비: 검날의 불티(앞)
   if (c.key === 'aatrox' && !c.dead && c.ar) drawBloodAuraFront(x, y, sw, sh, lift);   // 세계의 종결자 불씨(앞)
   if (c.key === 'garen' && !c.dead) drawGarenFront(c, x, y, sw, sh, lift);
@@ -1758,6 +1936,8 @@ function drawFx() {
       drawIgniteFx(f, p);
     } else if (f.fx === 'flash') {   // 점멸: 출발·도착 지점 반짝임 + 잔광
       drawFlashFx(f, p);
+    } else if (f.fx === 'potion') {  // 체력 물약 마시기 시작: 붉은 빛과 십자가가 퍼짐
+      drawPotionFx(f, p);
     }
     ctx.restore();
   }
@@ -1886,7 +2066,18 @@ function render(now) {
    매 프레임
    ===================================================================== */
 let wasDead = false, lastArmor = null;
+/* 물약 줄이 내 챔피언(체력바 포함)을 가리면 반투명하게: 시작 지점에서 카메라가 맵 모서리에 걸려 챔피언이 버튼 밑에 오는 경우 */
+const potRowEl = $('#potRow');
+function refreshPotRowFade() {
+  const me = ME(); if (!me || !potRowEl) return;
+  const [px0, py0] = P2(me), ar = app.getBoundingClientRect(), r = potRowEl.getBoundingClientRect();
+  const sx = ar.left + cssW / 2 + (px0 - cam.x) * zoom, sy = ar.top + cssH / 2 + (py0 - cam.y) * zoom;
+  const top = sy - (barH(me) + 30) * zoom, half = 40 * zoom;   // 체력바·이름까지 포함한 대략의 영역
+  const hit = sx + half > r.left && sx - half < r.right && sy > r.top && top < r.bottom;
+  potRowEl.classList.toggle('under', hit);
+}
 function refreshHud() {
+  refreshPotRowFade();
   const me = ME(); if (!me) return;
   const gt = Core.gameTime(W()), m = Math.floor(gt / 60), sec = Math.floor(gt % 60);
   const ck = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
@@ -1901,6 +2092,7 @@ function refreshHud() {
   if (d && d.armor !== lastArmor) { lastArmor = d.armor; $('#tDmArmor').textContent = `더미 방어력: ${d.armor}`; }
   refreshSkills();
   refreshSpells();
+  refreshItems();
 }
 let last = performance.now();
 function frame(now) {

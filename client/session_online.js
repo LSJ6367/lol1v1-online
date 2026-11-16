@@ -80,6 +80,7 @@ class OnlineSession {
         const a = { k: 'sp', s: cmd.spell }; if (cmd.ang !== undefined) a.ang = cmd.ang; if (cmd.aimed) a.aimed = true; this.acts.push(a); break;
       }
       case 'levelup': this.acts.push({ k: 'lv', skill: cmd.skill }); break;
+      case 'item': this.acts.push({ k: 'it', s: cmd.item }); break;   // 액티브 아이템(체력 물약). 서버 행동 it (sanitizeFrame이 모르는 항목은 버림)
       case 'dev': if (this.test) this.acts.push({ k: 'dev', op: cmd.op, sec: cmd.sec }); break;
     }
   }
