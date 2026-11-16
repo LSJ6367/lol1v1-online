@@ -15,6 +15,7 @@
    명령(클라이언트 → 코어). 모든 명령에 id(보낸 챔피언)가 있습니다.
      { type:'input',   id, mx, my, atk }          // 이동 방향(-1~1)과 평타 버튼 상태
      { type:'cast',    id, skill:'q'|'w'|'e'|'r', ang }   // 스킬 시전(ang: 조준 각도, 라디안)
+     { type:'spell',   id, spell:'ignite'|'flash', ang?, aimed? }   // 소환사 주문(점화·점멸). ang·aimed는 점멸 방향에만 씀
      { type:'levelup', id, skill }
      { type:'dev',     id, op, ... }              // 테스트 도구(world.devMode가 true일 때만)
    ===================================================================== */
@@ -147,6 +148,14 @@ const GAREN_PASSIVE = { idle: 8, perSec: 0.005 };
 const AATROX_PASSIVE = { cd: 22, range: 50, pctBase: 0.04, pctPerLvl: 0.06 / 17, heal: 1.0, cdrHit: 2, cdrSweet: 4 };
 /* 광역기(다리우스 Q, 가렌 E, 아트록스 Q)가 주는 피해의 흡혈 배율 (DESIGN.md §1-1, A9) */
 const OMNI_AOE = 0.33;
+/* 소환사 주문(모든 챔피언 공통, DESIGN_SPELLS.md §1 · 원문 docs/spec/spells.md). 거리 단위는 유닛.
+   점화: 사거리 600(히트박스 끝~끝) 안 대상에게 170 고정 피해를 1초마다 5번(34씩), 남은 5초 동안 대상 회복 ×(1 - 0.4).
+   점멸: 바라보는 방향 400 앞으로 순간이동. 벽이면 반경 150 안 가장 가까운 설 수 있는 곳(wallStep 단위로 넓히며, wallAngles 방향씩). 없으면 선을 따라 뒤로 당김 */
+const SPELLS = {
+  ignite: { range: 600, total: 170, dur: 5, ticks: 5, healCut: 0.4, cd: 180 },
+  flash: { dist: 400, cd: 300, wallSearch: 150, wallStep: 5, wallAngles: 16 }
+};
+const SPELL_KEYS = ['ignite', 'flash'];
 const EPS = 1e-9;
 
 /* ---------------------------------------------------------------------
@@ -224,13 +233,15 @@ function makeChamp(id, key, team) {
     awZone: null,                                         // 지옥사슬 충격 지대 {x, y, ang, t, targetId, lv, raw(1차 피해 원값)}
     ar: null,                                             // 세계의 종결자 {t(경과), dur(지속), msT(이동속도 효과 경과), lv}
     dash: null,                                           // 파멸의 돌진 중 {t, dir, x0, y0}
-    faceAng: team === 1 ? Math.PI : 0                     // 마지막으로 움직인 방향(라디안). 돌진 기본 방향 (B4)
+    faceAng: team === 1 ? Math.PI : 0,                    // 마지막으로 움직인 방향(라디안). 돌진 기본 방향 (B4)
+    /* 소환사 주문(모든 챔피언 공통). spCd는 부활해도 남음(respawn이 보존). ign = 이 챔피언이 받은 점화 {t, src, n} (없으면 null) */
+    spCd: { ignite: 0, flash: 0 }, ign: null
   };
 }
 function makeDummy(id, team) {
   return { kind: 'dummy', id, team, x: HOME.x, y: HOME.y, r: 70, hp: 5000, maxHp: 5000, armor: 0,
            total: 0, hits: [], idle: 0, flash: 0, air: 0, airMax: 0.1, slow: null, pull: null, pendSlow: false, homeT: 0, bleed: null, mr: 0,
-           silence: null, shields: [], tenSrc: [], shred: null };
+           silence: null, shields: [], tenSrc: [], shred: null, ign: null };
 }
 function makeTurret(id, team, x, y) {
   return { kind: 'turret', id, team, x, y, r: TURRET_CFG.r, hp: TURRET_CFG.hp, maxHp: TURRET_CFG.hp,
@@ -370,11 +381,12 @@ function magicMulFor(w, target) {
   return m;
 }
 /* 가해자가 있는 피해 한 번. hurt 결과를 돌려주고(표시 숫자는 그대로), 체력+보호막에 실제로 들어간 양(초과분 제외)만큼 가해자 흡혈.
-   opts.aoe: 광역기면 흡혈 ×0.33 (DESIGN_AATROX A9). 포탑·출혈 피해는 이 함수를 쓰지 않으므로 흡혈이 없음 */
+   opts.aoe: 광역기면 흡혈 ×0.33 (DESIGN_AATROX A9). 포탑·출혈 피해는 이 함수를 쓰지 않으므로 흡혈이 없음.
+   opts.noOmni: 흡혈 없음(점화 틱 — DESIGN_SPELLS S2) */
 function dealFrom(w, c, t, a, opts) {
   const pool0 = t.hp + shieldOf(t);
   const got = hurt(w, t, a);
-  if (c && c.kind === 'champ') omniHeal(w, c, t, Math.min(got, pool0), !!(opts && opts.aoe));
+  if (c && c.kind === 'champ' && !(opts && opts.noOmni)) omniHeal(w, c, t, Math.min(got, pool0), !!(opts && opts.aoe));
   return got;
 }
 const dealPhys = (w, c, t, raw, opts) => dealFrom(w, c, t, raw * physMulFor(w, t, penPct(c)), opts);
@@ -413,8 +425,10 @@ function omniHeal(w, c, t, dealt, aoe) {
   if (!(om > 0) || !(dealt > 0)) return;
   heal(w, c, dealt * om * (aoe ? OMNI_AOE : 1), 'omni');
 }
-/* 회복 증가(B9): 아트록스 세계의 종결자 중에는 모든 회복 × (1 + 50/75/100%). 그 밖에는 1 */
-const healMul = c => (c && c.ar ? 1 + SKILLS.aatrox.r.heal[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] : 1);
+/* 점화 치유 감소(S3): 점화가 남아 있는 대상의 모든 회복 × (1 - 0.4). 챔피언·허수아비 공통 */
+const igniteHealMul = u => (u && u.ign ? 1 - SPELLS.ignite.healCut : 1);
+/* 회복 증가(B9): 아트록스 세계의 종결자 중에는 모든 회복 × (1 + 50/75/100%). 그 밖에는 1. 점화 치유 감소와 곱함 */
+const healMul = c => (c && c.ar ? 1 + SKILLS.aatrox.r.heal[Math.min(Math.max(c.ar.lv, 1), SKILLS.aatrox.r.max) - 1] : 1) * igniteHealMul(c);
 /* 모든 회복의 단일 입구: 회복량 × healMul(c)을 체력에 더하되 최대 체력은 넘지 않음. 죽은 챔피언은 회복 안 함. 회복된 양을 돌려줌.
    src별 글자(HEAL_TXT): 흡혈·사신 태세·다리우스 Q는 '+n' 글자, 체력 재생·명상·가렌 인내심은 글자 없음(예전과 같음). 목록에 없는 src는 기본 글자 */
 const HEAL_TXT = { omni: { big: false, dx: 16 }, aatroxP: { big: true, dx: 16 }, dariusQ: { big: true, dx: 0 }, regen: null, yiMed: null, garenP: null };
@@ -433,13 +447,14 @@ function aatroxEOmni(c) { const E = SKILLS.aatrox.e; return E.omniBase + E.omniP
 /* 처치 처리. killer(챔피언)가 가렌이면 챔피언·허수아비 처치마다 용기 +0.2 (최대 30, DESIGN_GAREN.md G8). 포탑 처치는 세지 않음 */
 function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 true
   if (t.hp > 0) return false;
-  if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); grantCourage(killer); }
+  if (t.kind === 'dummy') { t.hp = t.maxHp; t.bleed = null; t.ign = null; banner(w, '더미 처치 · 체력 초기화', false, 1.5); grantCourage(killer); }
   else if (t.kind === 'champ') {
     const first = !t.dead;
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
     t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.chase = null; t.aq = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
     t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
+    t.ign = null;                                                        // 점화도 사라짐(소환사 주문 쿨타임은 나 자신의 것이라 남음)
     t.gq = null; t.gqMs = 0; t.gqMsPct = 0; t.gw = null; t.ge = null; t.gr = null;   // 가렌 상태도 사라짐(용기는 부활 뒤에도 유지)
     t.aw = null; t.awZone = null; t.ar = null; t.dash = null;                          // 아트록스 W·R·E 상태도 사라짐(부활하면 초기화)
     if (first) grantCourage(killer);
@@ -530,6 +545,7 @@ function tickStatus(w, u, dt) {
     if (b.t <= 0) u.bleed = null;
     settle(w, u);
   }
+  if (u.ign && !u.dead) igniteTick(w, u, dt);   // 점화 틱(S2): 가해자는 시전자
 }
 
 /* ---------------------------------------------------------------------
@@ -1124,6 +1140,99 @@ function finishCast(w, c, cast) {
 }
 
 /* ---------------------------------------------------------------------
+   소환사 주문: 점화 · 점멸 (DESIGN_SPELLS.md §1, S1~S8)
+   --------------------------------------------------------------------- */
+/* 점화 대상(S1): 사거리 안(히트박스 끝~끝)의 가장 가까운 적 챔피언, 없으면 가장 가까운 허수아비(연습용). 없으면 null */
+function igniteTarget(w, c) {
+  const lim = px(SPELLS.ignite.range);
+  let champ = null, bc = Infinity, dummy = null, bdm = Infinity;
+  for (const u of enemiesOf(w, c)) {
+    const d = edgeDist(u, c);
+    if (d > lim) continue;
+    if (u.kind === 'champ') { if (d < bc) { champ = u; bc = d; } }
+    else if (u.kind === 'dummy') { if (d < bdm) { dummy = u; bdm = d; } }
+  }
+  return champ || dummy;
+}
+/* 점화 틱(S2): 시전 뒤 1초마다 170 ÷ 5 = 34 고정 피해, 5번. 흡혈 없음(noOmni). 가해자는 시전자 → 처치 점수(가렌 용기, 아트록스 세계의 종결자) 적용.
+   5초가 지나면 사라짐. 처치되면 settle이 점화를 지움 */
+function igniteTick(w, u, dt) {
+  const I = u.ign, S = SPELLS.ignite;
+  I.t += dt;
+  while (u.ign === I && I.n < S.ticks && I.t >= (I.n + 1) - EPS) {
+    I.n++;
+    const src = champOf(w, I.src);
+    const v = dealTrue(w, src, u, S.total / S.ticks, { noOmni: true });
+    text(w, u.x - 10, u.y - px(50), v < 10 ? v.toFixed(1) : v.toFixed(0), '#ff9a3c', false);
+    settle(w, u, src);
+  }
+  if (u.ign === I && I.t >= S.dur - EPS) u.ign = null;
+}
+/* 설 수 있는 곳(일반 이동과 같은 기준, stepMove의 tryAt): 다른 유닛 밖으로 밀어낸 뒤 canStand. 아니면 null. 월드는 바꾸지 않음 */
+function standAt(w, c, x, y) {
+  const q = { x, y };
+  pushOut(w, c, q);
+  return canStand(q.x, q.y) ? q : null;
+}
+/* 점멸 도착점(S4, S5). 방향 dir로 dist 앞 지점 → 설 수 있으면 거기.
+   아니면 반경 wallSearch 안에서 가장 가까운 설 수 있는 곳: 반경을 wallStep씩 넓히며, 같은 반경은 dir 쪽부터 좌·우 번갈아 wallAngles 방향.
+   그래도 없으면 선을 따라 도착점에서 wallStep씩 뒤로 가며 처음 설 수 있는 곳. 그것도 없으면 시작 지점(castFlash가 취소). 순수 함수 */
+function flashTo(w, c, dir) {
+  const F = SPELLS.flash, step = px(F.wallStep), ax = Math.cos(dir), ay = Math.sin(dir), ex = px(F.dist);
+  const dest = { x: c.x + ax * ex, y: c.y + ay * ex };
+  const direct = standAt(w, c, dest.x, dest.y);
+  if (direct) return direct;
+  const R = px(F.wallSearch), n = F.wallAngles, base = Math.atan2(ay, ax);
+  for (let r = step; r <= R + EPS; r += step) {
+    for (let k = 0; k < n; k++) {
+      const a = base + (k % 2 ? Math.ceil(k / 2) : -(k / 2)) * 2 * Math.PI / n;   // 0, +1, -1, +2, -2 … (단위: 한 칸 = 2π/n)
+      const hit = standAt(w, c, dest.x + Math.cos(a) * r, dest.y + Math.sin(a) * r);
+      if (hit) return hit;
+    }
+  }
+  for (let d = ex - step; d > EPS; d -= step) {
+    const hit = standAt(w, c, c.x + ax * d, c.y + ay * d);
+    if (hit) return hit;
+  }
+  return { x: c.x, y: c.y };
+}
+/* 점멸 도착점 미리보기(화면용, 순수). 방향은 아트록스 E와 같은 규칙(aatroxDashDir): 조준(aimed) > 조이스틱 > 마지막 이동 방향 */
+function flashDest(w, c, ang, aimed) { return flashTo(w, c, aatroxDashDir(c, ang, aimed)); }
+/* 점멸(S4, S5): 즉시 이동. 진행 중 평타(선딜)와 평타 추적은 취소(재추적은 평타 버튼을 뗄 때까지 막음). 마스터 이 명상은 끊음. 스킬 시전은 그대로 둠(아트록스 Q는 따라옴).
+   다리우스 R 시전 중(단두대 이동)이면 이동 목표를 도착점으로 고정해서 원래 자리로 되돌아가지 않게 함. 도착점이 출발점과 같으면 쓰지 않음(쿨타임 소모 없음) */
+function castFlash(w, c, ang, aimed, say) {
+  const dir = aatroxDashDir(c, ang, aimed);
+  const from = { x: c.x, y: c.y }, to = flashTo(w, c, dir);
+  if (to.x === from.x && to.y === from.y) { say('이동할 곳 없음'); return; }
+  c.spCd.flash = SPELLS.flash.cd;
+  c.atk = null; cancelChase(c);
+  if (c.cast && c.cast.type === 'r') { c.cast.from = { x: to.x, y: to.y }; c.cast.to = { x: to.x, y: to.y }; }
+  c.x = to.x; c.y = to.y;
+  endMed(c);                                                // 마스터 이 명상 끊김(이동과 같은 끊김 경로): 끊긴 뒤 0.5초 피해 감소 유지
+  c.faceAng = dir; c.facing = Math.cos(dir) < 0 ? -1 : 1;   // 바라보는 방향도 점멸 방향(아트록스 E의 기본 방향이 됨)
+  fx(w, { fx: 'flash', id: c.id, x0: from.x, y0: from.y, x1: to.x, y1: to.y });
+}
+/* 점화 시전(S1, S2): 대상이 없으면 글자만 띄우고 쿨타임은 그대로. 있으면 대상에게 점화(다시 걸면 처음부터 갱신), 쿨타임 180초 */
+function castIgnite(w, c, say) {
+  const t = igniteTarget(w, c);
+  if (!t) { say('사거리 내 대상 없음'); return; }
+  c.spCd.ignite = SPELLS.ignite.cd;
+  t.ign = { t: 0, src: c.id, n: 0 };
+  text(w, t.x, t.y - px(62), '점화', '#ff9a3c', true);
+  fx(w, { fx: 'ignite', src: c.id, targetId: t.id });
+}
+/* 소환사 주문 시전(S6, S7). 죽음·공중에 뜸·끌려옴·일격필살(yq)·돌진 중에는 아무 글자 없이 무시(castSkill과 같음).
+   침묵은 막지 않음. 다른 스킬 시전 중에는 가능. s: 'ignite' | 'flash'. ang·aimed는 점멸 방향에만 씀 */
+function castSpell(w, c, s, ang, aimed) {
+  if (!SPELL_KEYS.includes(s)) return;
+  if (c.dead || c.air > 0 || c.pull || c.yq || c.dash) return;
+  const say = (m, col) => text(w, c.x, c.y - px(75), m, col || '#b8c4cf', false, c.id);
+  if (c.spCd[s] > 0) { say('재사용 대기 중'); return; }
+  if (s === 'ignite') castIgnite(w, c, say);
+  else castFlash(w, c, ang, aimed, say);
+}
+
+/* ---------------------------------------------------------------------
    챔피언 한 틱
    --------------------------------------------------------------------- */
 /* 마스터 이: 기본 공격 적중 공통 처리(1차 또는 2연속 두 번째). 스택·예약·우주류 추가 고정 피해·일격필살 쿨 감소 */
@@ -1190,7 +1299,7 @@ function yiMedTick(w, c, dt) {
 }
 
 function respawn(w, c) {
-  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus, courage: c.courage };   // 추가 스탯(아이템)·가렌 용기는 부활해도 유지. 스킬 레벨도 유지
+  const keep = { sk: c.sk, sp: c.sp, in: c.in, bonus: c.bonus, courage: c.courage, spCd: c.spCd };   // 추가 스탯(아이템)·가렌 용기·스킬 레벨·소환사 주문 쿨타임은 부활해도 유지
   Object.assign(c, makeChamp(c.id, c.key, c.team), keep);
 }
 
@@ -1209,6 +1318,7 @@ function chaseTick(w, c, locked) {
 }
 
 function updateChamp(w, c, dt) {
+  for (const k of SPELL_KEYS) c.spCd[k] = Math.max(0, c.spCd[k] - dt);   // 소환사 주문 쿨타임은 죽어 있는 동안에도 흐름(부활해도 남음)
   if (c.dead) { c.respawn -= dt; if (c.respawn <= 0) respawn(w, c); return; }
   const s = c.stats;
   heal(w, c, s.regen / 5 * dt, 'regen');                          // 체력 재생: 5초당 수치만큼 (세계의 종결자 중 ×(1+회복 증가))
@@ -1315,7 +1425,7 @@ function updateDummy(w, d, dt) {
     }
   }
   while (d.hits.length && d.hits[0].t < w.time - 5) d.hits.shift();
-  if (d.idle > 4 && d.hp < d.maxHp) d.hp = Math.min(d.maxHp, d.hp + d.maxHp * dt);   // 4초 동안 안 맞으면 회복
+  if (d.idle > 4 && d.hp < d.maxHp) d.hp = Math.min(d.maxHp, d.hp + d.maxHp * dt * igniteHealMul(d));   // 4초 동안 안 맞으면 회복(점화 중이면 ×0.6)
 }
 
 function resetTurretLock(t) { t.targetId = null; t.warn = 0; t.locked = false; t.shot = null; t.stacks = 0; }
@@ -1361,7 +1471,7 @@ function updateTurret(w, t, dt) {
 function devOp(w, c, cmd) {
   switch (cmd.op) {
     case 'air': if (!c.dead) { c.air = 1; c.airMax = 1; c.atk = null; c.cast = null; c.qPrep = null; text(w, c.x, c.y - px(75), '공중에 뜸', '#cfe8ff', true); } break;
-    case 'ready': for (const k of SKILL_KEYS) c.cd[k] = 0; c.mana = c.stats.maxMana; break;
+    case 'ready': for (const k of SKILL_KEYS) c.cd[k] = 0; for (const k of SPELL_KEYS) c.spCd[k] = 0; c.mana = c.stats.maxMana; break;
     case 'time': w.devT += cmd.sec || 0; break;
     case 'spawn': { const sp = SPAWNS[c.team] || SPAWNS[0]; c.x = sp.x; c.y = sp.y; break; }
     case 'turretReset': for (const t of w.turrets) if (t.team !== c.team) { t.hp = t.maxHp; t.dead = false; resetTurretLock(t); t.cd = 0; } break;
@@ -1382,6 +1492,7 @@ function applyCommand(w, cmd) {
       break;
     }
     case 'cast': castSkill(w, c, cmd.skill, Number(cmd.ang), !!cmd.aimed); break;
+    case 'spell': castSpell(w, c, cmd.spell, Number(cmd.ang), !!cmd.aimed); break;
     case 'levelup': levelUp(w, c, cmd.skill); break;
     case 'dev': if (w.devMode) devOp(w, c, cmd); break;
   }
@@ -1416,6 +1527,8 @@ return {
   // 회복 (DESIGN_AATROX §2-6, B9): 모든 회복의 단일 입구와 회복 배율(세계의 종결자 중 1 + 회복 증가)
   heal, healMul,
   // 아트록스 (DESIGN_AATROX.md §2): 사신 태세 상수, Q 도형(화면과 같은 값), Q 단계(버튼 표시), W 충격 지대 꼭짓점, E 흡혈 값
-  AATROX_PASSIVE, aatroxQShape, aatroxQStage, aatroxWZone, aatroxEOmni, aatroxDashDir, atkRange
+  AATROX_PASSIVE, aatroxQShape, aatroxQStage, aatroxWZone, aatroxEOmni, aatroxDashDir, atkRange,
+  // 소환사 주문 (DESIGN_SPELLS.md §1): 상수, 점화 대상, 점멸 도착점(화면 미리보기)
+  SPELLS, SPELL_KEYS, igniteTarget, flashDest
 };
 });

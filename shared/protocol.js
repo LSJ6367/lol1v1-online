@@ -21,7 +21,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 12;   // 12: 아트록스 W(지옥사슬)·E(파멸의 돌진)·R(세계의 종결자) 추가, 돌진 조준 표시 aimed(cast 원소) 추가 / 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 13;   // 13: 소환사 주문 점화·점멸 추가(act sp: 점화는 대상 자동, 점멸은 방향 ang·aimed) / 12: 아트록스 W(지옥사슬)·E(파멸의 돌진)·R(세계의 종결자) 추가, 돌진 조준 표시 aimed(cast 원소) 추가 / 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -36,6 +36,7 @@ const NAME_MAX = 12;
 const WIN = { kills: 1, turret: true };   // 승리 조건: 처치 1회 또는 상대 포탑 파괴 (먼저 달성한 쪽)
 const CHAMP_KEYS = ['darius', 'yi', 'garen', 'aatrox'];
 const SKILLS = ['q', 'w', 'e', 'r'];
+const SPELL_KEYS = ['ignite', 'flash'];   // 소환사 주문(모든 챔피언 공통). 점화·점멸
 const DEV_OPS = ['air', 'ready', 'time', 'spawn', 'turretReset', 'dummyReset', 'dummyArmor'];
 
 /* ── 메시지 종류 ─────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ const DEV_OPS = ['air', 'ready', 'time', 'spawn', 'turretReset', 'dummyReset', '
 
 /* acts 원소 (한 프레임에 여러 개 가능, 최대 4개)
      {k:'cast', skill, ang, aimed?}  스킬 시전. aimed: true면 스킬 버튼을 끌어서 조준한 것(돌진 방향에 ang 사용)
+     {k:'sp',   s, ang?, aimed?}     소환사 주문. s: 'ignite'(점화, 대상 자동) | 'flash'(점멸). ang·aimed는 점멸 방향(아트록스 E와 같은 규칙, 없으면 조이스틱·마지막 이동 방향)
      {k:'lv',   skill}          스킬 레벨업
      {k:'dev',  op, sec?}       테스트 도구(테스트 모드 방에서만 서버가 적용) */
 
@@ -79,6 +81,7 @@ function sanitizeFrame(f, allowDev) {
     for (const x of f.acts.slice(0, 4)) {
       if (!x || typeof x !== 'object') continue;
       if (x.k === 'cast' && SKILLS.includes(x.skill)) { const a = { k: 'cast', skill: x.skill, ang: r3(isNum(x.ang) ? x.ang : 0) }; if (x.aimed === true) a.aimed = true; acts.push(a); }
+      else if (x.k === 'sp' && SPELL_KEYS.includes(x.s)) { const a = { k: 'sp', s: x.s }; if (isNum(x.ang)) a.ang = r3(x.ang); if (x.aimed === true) a.aimed = true; acts.push(a); }
       else if (x.k === 'lv' && SKILLS.includes(x.skill)) acts.push({ k: 'lv', skill: x.skill });
       else if (x.k === 'dev' && allowDev && DEV_OPS.includes(x.op)) {
         const d = { k: 'dev', op: x.op };
@@ -96,6 +99,7 @@ function frameToCmds(id, f) {
   const cmds = [{ type: 'input', id, mx: f.mx, my: f.my, atk: !!f.a }];
   if (f.acts) for (const x of f.acts) {
     if (x.k === 'cast') cmds.push(Object.assign({ type: 'cast', id, skill: x.skill, ang: x.ang }, x.aimed ? { aimed: true } : {}));
+    else if (x.k === 'sp') cmds.push(Object.assign({ type: 'spell', id, spell: x.s }, x.ang !== undefined ? { ang: x.ang } : {}, x.aimed ? { aimed: true } : {}));
     else if (x.k === 'lv') cmds.push({ type: 'levelup', id, skill: x.skill });
     else if (x.k === 'dev') cmds.push(Object.assign({ type: 'dev', id, op: x.op }, x.sec != null ? { sec: x.sec } : {}));
   }
@@ -137,7 +141,7 @@ function decode(text) { try { const m = JSON.parse(text); return m && typeof m =
 
 return {
   VERSION, TICK_HZ, SNAP_EVERY, INTERP_TICKS, MAX_QUEUE, QUEUE_TARGET, MAX_FRAMES_PER_SEC, COUNTDOWN_SEC, RECONNECT_SEC,
-  ROOM_CODE_CHARS, ROOM_CODE_LEN, NAME_MAX, WIN, CHAMP_KEYS, SKILLS, DEV_OPS,
+  ROOM_CODE_CHARS, ROOM_CODE_LEN, NAME_MAX, WIN, CHAMP_KEYS, SKILLS, SPELL_KEYS, DEV_OPS,
   sanitizeFrame, frameToCmds, mergeDropped, slimWorld, restoreWorld, eventsFor, makeRoomCode, normName, encode, decode
 };
 });

@@ -543,7 +543,7 @@ const zoneAna = (f, s) => Math.abs(f) <= 412.5 && Math.abs(s) <= 200 + 150 * (f 
 // ---------------------------------------------------------------------
 // 6. 프로토콜: 버전 12, 돌진 조준 표시(aimed)
 // ---------------------------------------------------------------------
-{ ok('6 프로토콜 버전 12', P.VERSION === 12, P.VERSION);
+{ ok('6 프로토콜 버전 13', P.VERSION === 13, P.VERSION);
   const f = P.sanitizeFrame({ s: 3, mx: 0, my: 0, acts: [{ k: 'cast', skill: 'e', ang: 1.2, aimed: true }, { k: 'cast', skill: 'w', ang: 0.5, aimed: 'yes' }] });
   ok('6 cast aimed: true만 통과(문자열은 버림)', f.acts[0].aimed === true && !('aimed' in f.acts[1]), JSON.stringify(f.acts));
   const cmds = P.frameToCmds('p1', f);
