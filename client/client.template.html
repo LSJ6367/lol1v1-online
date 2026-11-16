@@ -138,8 +138,8 @@ button { font: inherit; color: inherit; }
 .sk.silenced { border-color: #6b5a8a; color: #8c7fa6; background: radial-gradient(circle at 40% 35%, #1d2030, #0a0c13); }
 .sk.silenced svg { opacity: .3; }
 .sk.silenced::before { content: ""; position: absolute; left: 20%; right: 20%; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; background: #d2607f; box-shadow: 0 0 6px rgba(210,96,127,.8); transform: rotate(-45deg); z-index: 2; pointer-events: none; }
-/* 소환사 주문 (점화·점멸): 스킬 1 왼쪽에 가로로 나란히(점화 왼쪽, 점멸 오른쪽). 위치는 #actions의 --k·--sz를 그대로 써서 화면마다 같이 줄어듦. 크기는 스킬의 80% */
-.spw { position: absolute; left: calc(50% + var(--dx) * var(--k) * 1px); top: calc(50% + var(--dy) * var(--k) * 1px); width: calc(var(--sz) * .8); height: calc(var(--sz) * .8); transform: translate(-50%, -50%); }
+/* 소환사 주문 (점화·점멸): 스킬 1 왼쪽에 가로로 나란히(점화 왼쪽, 점멸 오른쪽). 위치는 #actions의 --k·--sz를 그대로 써서 화면마다 같이 줄어듦. 크기는 스킬의 94%, 둘 사이 간격 18·스킬 1과 간격 16 (사용자 요청 2026-11-16: 크게·간격 넓게·왼쪽으로) */
+.spw { position: absolute; left: calc(50% + var(--dx) * var(--k) * 1px); top: calc(50% + var(--dy) * var(--k) * 1px); width: calc(var(--sz) * .94); height: calc(var(--sz) * .94); transform: translate(-50%, -50%); }
 .sp { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #2a3a4c, #0e151d); border: 2px solid var(--sb); color: var(--sc); cursor: pointer; touch-action: none; overflow: hidden; --cd: 0; box-shadow: 0 3px 10px rgba(0,0,0,.6); transition: transform .08s; }
 .sp[data-s="ignite"] { --sb: #ff8a3c; --sc: #ffb36b; background: radial-gradient(circle at 40% 35%, #46220c, #120803); }
 .sp[data-s="flash"] { --sb: #ffe066; --sc: #fff6c2; background: radial-gradient(circle at 40% 35%, #423b10, #12100a); }
@@ -471,8 +471,8 @@ button { font: inherit; color: inherit; }
         <button class="sk" type="button" data-k="r" data-lv="0"></button>
         <div class="dots" aria-hidden="true"></div>
       </div>
-      <div class="spw" data-s="ignite" style="--dx:-259;--dy:4"><button class="sp" type="button" data-s="ignite"></button></div>
-      <div class="spw" data-s="flash" style="--dx:-207;--dy:4"><button class="sp" type="button" data-s="flash"></button></div>
+      <div class="spw" data-s="ignite" style="--dx:-300;--dy:4"><button class="sp" type="button" data-s="ignite"></button></div>
+      <div class="spw" data-s="flash" style="--dx:-231;--dy:4"><button class="sp" type="button" data-s="flash"></button></div>
     </div>
   </div>
 </div>

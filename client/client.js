@@ -936,17 +936,17 @@ function drawSelfInfo(me) {
   if (red > 0) { const t = `피해 감소 ${red}%`; ctx.fillStyle = '#b9ffcf'; ctx.strokeText(t, x, y0 + 16); ctx.fillText(t, x, y0 + 16); }
   if (me.wuju > 0) { const t = `우주류 검술 ${fmt(me.wuju, 1)}초`, ty = red > 0 ? y0 + 27 : y0 + 16; ctx.fillStyle = '#ffe27a'; ctx.strokeText(t, x, ty); ctx.fillText(t, x, ty); }   // 발밑(머리 위는 상대 체력 정보와 겹침)
 }
-/* ---------- 체력 물약 효과 (모두에게 보임). 마시는 중: 분홍빛 회복 빛(몸 뒤) + 붉은 십자가가 천천히 떠오름(몸 앞).
-   마시기 시작한 순간(fx 'potion'): 붉은 빛이 퍼지고 십자가 6개가 바깥으로 흩어짐 ---------- */
-function healCross(x, y, s, a) {   // 붉은 십자가 한 개: s = 가로·세로 길이(px), 굵기는 s의 0.36, 가운데 밝은 점
+/* ---------- 체력 물약 효과 (모두에게 보임). 마시는 중: 초록 회복 빛(몸 뒤) + 초록 십자가가 천천히 떠오름(몸 앞). (사용자 요청 2026-11-16: 초록색)
+   마시기 시작한 순간(fx 'potion'): 초록 빛이 퍼지고 십자가 6개가 바깥으로 흩어짐 ---------- */
+function healCross(x, y, s, a) {   // 초록 십자가 한 개: s = 가로·세로 길이(px), 굵기는 s의 0.36, 가운데 밝은 점
   const t = s * 0.36;
-  ctx.fillStyle = `rgba(255,88,116,${a.toFixed(3)})`;
+  ctx.fillStyle = `rgba(70,220,120,${a.toFixed(3)})`;
   ctx.fillRect(x - s / 2, y - t / 2, s, t); ctx.fillRect(x - t / 2, y - s / 2, t, s);
-  ctx.fillStyle = `rgba(255,214,222,${(a * 0.8).toFixed(3)})`; ctx.fillRect(x - t / 4, y - t / 4, t / 2, t / 2);
+  ctx.fillStyle = `rgba(214,255,226,${(a * 0.8).toFixed(3)})`; ctx.fillRect(x - t / 4, y - t / 4, t / 2, t / 2);
 }
 function drawPotionBack(c, x, y, sw, sh, lift) {
   const cy = y - lift - sh * 0.5, pu = 1 + 0.05 * Math.sin(clockT * 5);
-  auraGlow(x, cy, sh * 0.85 * pu, 0.62, '255,100,130', 0.55);
+  auraGlow(x, cy, sh * 0.85 * pu, 0.62, '90,230,130', 0.55);
 }
 function drawPotionFront(c, x, y, sw, sh, lift) {
   for (let i = 0; i < 4; i++) {
@@ -954,12 +954,12 @@ function drawPotionFront(c, x, y, sw, sh, lift) {
     healCross(qx, qy, 5.6 + 2.2 * (1 - ph), 0.95 * Math.sin(ph * Math.PI));
   }
 }
-function drawPotionFx(f, p) {   // 마시기 시작(0.7초): 몸 가운데에서 붉은 빛이 퍼지고 십자가가 흩어짐
+function drawPotionFx(f, p) {   // 마시기 시작(0.7초): 몸 가운데에서 초록 빛이 퍼지고 십자가가 흩어짐
   const u = Core.champOf(W(), f.id); if (!u) return;
   const [x, y] = P2(u), cy = y - spriteH(u) * 0.5, e = 1 - (1 - p) * (1 - p), fa = 1 - p, R = 10 + 30 * e;
   ctx.globalAlpha = 1;
   const g = ctx.createRadialGradient(x, cy, 1, x, cy, R);
-  g.addColorStop(0, `rgba(255,205,215,${(0.7 * fa).toFixed(3)})`); g.addColorStop(0.5, `rgba(255,90,120,${(0.36 * fa).toFixed(3)})`); g.addColorStop(1, 'rgba(255,60,90,0)');
+  g.addColorStop(0, `rgba(205,255,220,${(0.7 * fa).toFixed(3)})`); g.addColorStop(0.5, `rgba(80,225,125,${(0.36 * fa).toFixed(3)})`); g.addColorStop(1, 'rgba(50,200,100,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, cy, R, 0, 7); ctx.fill();
   for (let i = 0; i < 6; i++) {
     const a = i * Math.PI / 3 + 0.5, d = 8 + 26 * e;
