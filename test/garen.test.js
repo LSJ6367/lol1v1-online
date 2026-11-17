@@ -23,15 +23,15 @@ const gar = w => w.champs[0], dum = w => w.dummies[0];
 const hasText = (evs, s) => evs.some(e => e.type === 'text' && e.txt === s);
 const pool = u => u.hp + Core.shieldOf(u);   // 보호막까지 합친 체력: 이 값의 감소 = 방어력·감소 적용 뒤 받은 피해
 // 가렌(p1, 팀0) + 허수아비. 포탑 격리, 자연 회복 끔
-const mk = (players) => {
-  const w = Core.createWorld({ players: players || [{ id: 'p1', key: 'garen', team: 0 }], dummy: true });
+const mk = (players) => {   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
+  const w = Core.createWorld({ players: players || [{ id: 'p1', key: 'garen', team: 0 }], dummy: true, runes: false });
   w.turrets.forEach(t => { t.dead = true; });
   w.champs.forEach(quiet);
   return w;
 };
 // 적 챔피언이 있는 1:1 (허수아비 없음). 두 번째 챔피언은 e1
-const duel = (enemyKey) => {
-  const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }, { id: 'e1', key: enemyKey, team: 1 }], dummy: false });
+const duel = (enemyKey) => {   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
+  const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }, { id: 'e1', key: enemyKey, team: 1 }], dummy: false, runes: false });
   w.turrets.forEach(t => { t.dead = true; });
   w.champs.forEach(quiet);
   const g = w.champs[0], e = w.champs[1];
@@ -336,7 +336,7 @@ const spinCount = bonusAS => { const w = mk(), c = gar(w); c.bonus.as = bonusAS;
   ok('5 회전은 3초에 끝나고 그때 E 쿨타임 9 시작', endT !== null && Math.abs(endT - 3) <= 2 * TICK && near(cdEnd, 9, 2 * TICK), `end ${endT && endT.toFixed(3)} cd ${cdEnd && cdEnd.toFixed(3)}`); }
 
 { // 5c. 가장 가까운 적 ×1.25: 허수아비(가까움) 50.75, 다리우스(멂, 방어력 0) 40.6
-  const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }, { id: 'e1', key: 'darius', team: 1 }], dummy: true });
+  const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }, { id: 'e1', key: 'darius', team: 1 }], dummy: true, runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
   w.turrets.forEach(t => { t.dead = true; }); w.champs.forEach(quiet);
   const g = w.champs[0], e = w.champs[1], d = w.dummies[0];
   lvl(w, g, { e: 1 }); d.armor = 0; e.stats.armor = 0;

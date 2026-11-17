@@ -145,7 +145,8 @@ const CAST_TIME = [
   { name: 'yi Q 일격필살 등장', key: 'yi', k: 'q', busy: p => p.yq !== null },
 ];
 for (const c of CAST_TIME) {
-  const w = mk(Core, c.key, c.key === 'yi' ? 'darius' : 'yi');
+  // 룬 끔: 기존 수치 검사. 칼날비 강화 평타 쿨타임(1/강화 공속 0.73초)이 일격필살 시전(0.9초)보다 짧아 시전 중 0이 되므로 룬 끔으로 봄
+  const w = mk(Core, c.key, c.key === 'yi' ? 'darius' : 'yi', c.key === 'yi' ? { runes: false } : undefined);
   const p = prepP(w, c.key);
   place(w, 100);
   strikeOnce(Core, w, p, true);

@@ -42,7 +42,7 @@ const mk = (o) => {
   o = o || {};
   const players = [{ id: 'p1', key: o.key || 'darius', team: 0 }];
   if (o.enemy) players.push({ id: 'e1', key: o.enemyKey || 'darius', team: 1 });
-  const w = Core.createWorld({ players, dummy: o.dummy !== false });
+  const w = Core.createWorld({ players, dummy: o.dummy !== false, runes: o.runes });   // o.runes: 룬 끔 옵션 전달(없으면 기본 켜짐)
   w.turrets.forEach(t => { t.dead = true; });
   w.champs.forEach(quiet);
   const a = w.champs[0];
@@ -169,7 +169,7 @@ const mk = (o) => {
 { // 흡혈 ×0.6: 시전자(다리우스, 흡혈 20%)가 점화를 받은 상태에서 평타 적중. 기준은 같은 평타를 점화 없이 쳤을 때
   //   (평타 적중 순간에는 다리우스 출혈 틱이 같이 돌아서 허수아비 체력 차이를 그대로 재면 안 됨 → 평타 피해 = 총 공격력으로 확인)
   const lifesteal = (withIgnite) => {
-    const { w, a, d, e } = mk({ enemy: true });
+    const { w, a, d, e } = mk({ enemy: true, runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
     a.bonus.omni = 0.2; a.hp = a.stats.maxHp - 400;                       // 빈 체력이 있어야 흡혈이 보임
     put(d, a, 145, 0); put(e, a, 400, 0, -PI / 2);                        // 허수아비는 평타 사거리 안, e1은 사거리 밖(북쪽 400)
     if (withIgnite) Core.step(w, [spell('e1', 'ignite')]);

@@ -32,7 +32,8 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   c.x = d.x - 60; c.y = d.y;  // 사거리 안
   ok('스폰 위치에서 서 있을 수 있음(맵 마스크)', Core.canStand(Core.SPAWNS[0].x, Core.SPAWNS[0].y));
   const hp0 = d.hp;
-  Core.step(w, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]);
+  // 조이스틱을 쥔 채 평타를 시작(joy0): 선딜 중 조이스틱은 취소하지 않음(DESIGN_RUNES C3). 아래 이동 입력은 그대로 유지
+  Core.step(w, [{ type: 'input', id: 'p1', mx: -1, my: 0, atk: true }]);
   const cyc = 1 / c.stats.as, wind = cyc * Core.WINDUP, back = cyc * Core.BACKSWING;
   ok('평타 시작 후 c.atk 존재', !!c.atk);
   Core.step(w, [{ type: 'input', id: 'p1', mx: -1, my: 0, atk: false }]);
@@ -54,7 +55,7 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   Core.step(w, [{ type: 'levelup', id: 'p1', skill: 'r' }]); ok('궁극기는 한 번만 레벨업', c.sk.r === 1); }
 
 // 6. 학살: 도끼 자루(히트박스 끝부터 205) / 도끼날(과다출혈)
-{ const w = mk(), c = w.champs[0], d = w.dummies[0]; lvl(w, c, { q: 1, e: 3, w: 1, r: 1 });
+{ const w = mk({ runes: false }), c = w.champs[0], d = w.dummies[0]; lvl(w, c, { q: 1, e: 3, w: 1, r: 1 });   // 룬 끔: 기존 수치 검사
   const ad = c.stats.ad;
   // 자루 범위: 중심 거리 255유닛(=205+55-5) 안쪽
   c.x = d.x - Core.px(240); c.y = d.y; const hp0 = d.hp;
@@ -102,7 +103,7 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   Core.step(w2, [{ type: 'cast', id: 'p1', skill: 'e', ang: 0 }]); run(w2, 0.5); ok('부채꼴 밖은 빗나감', !d2.pull && d2.air === 0 && !d2.bleed); }
 
 // 9. 궁극기: 고정 피해, 중첩 20%, 중첩 제거, 처치 시 공격력 증가
-{ const w = mk(), c = w.champs[0], d = w.dummies[0]; lvl(w, c, { r: 1 }); const ad = c.stats.ad;
+{ const w = mk({ runes: false }), c = w.champs[0], d = w.dummies[0]; lvl(w, c, { r: 1 }); const ad = c.stats.ad;   // 룬 끔: 기존 수치 검사
   c.x = d.x - Core.px(55 + 70 + 200); c.y = d.y; d.armor = 60;   // 방어력 60이어도 고정 피해는 무시
   d.bleed = { stacks: 1, t: 5, total: 0, acc: 0, txtT: 0, src: 'p1', pen: 0 };
   const hp0 = d.hp;

@@ -54,7 +54,7 @@ const strikeOnce = (w, a, t) => {
   ok('1 흡혈 0: 평타 3번 뒤 가해자 체력 변화 없음', a.hp === h0, `${h0} → ${a.hp}`);
   ok('1 흡혈 0: 회복 글자 없음', !hasHealText(w)); }
 
-{ const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }], dummy: true });
+{ const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }], dummy: true, runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
   w.turrets.forEach(t => { t.dead = true; }); w.champs.forEach(quiet);
   const g = w.champs[0], d = w.dummies[0];
   g.x = 600; g.y = 500; lvl(w, g, { e: 1 }); g.hp = g.stats.maxHp - 500;
@@ -112,7 +112,7 @@ const strikeOnce = (w, a, t) => {
   ok('4 광역 피해 100 → 흡혈 100 × 0.2 × 0.33 = 6.6', near(h1 - h0, 6.6, 1e-9), h1 - h0);
   ok('4 단일 피해 100 → 흡혈 20', near(g.hp - h1, 20, 1e-9), g.hp - h1); }
 
-{ const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }], dummy: true });
+{ const w = Core.createWorld({ players: [{ id: 'p1', key: 'garen', team: 0 }], dummy: true, runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
   w.turrets.forEach(t => { t.dead = true; }); w.champs.forEach(quiet);
   const g = w.champs[0], d = w.dummies[0];
   g.x = 600; g.y = 500;                             // 허수아비(700,500) 옆

@@ -347,7 +347,7 @@ function clearRun(len) {
 // ---------------------------------------------------------------------
 // 6. 최후의 전사 (R)
 // ---------------------------------------------------------------------
-{ const w = mk(), c = w.champs[0], d = D(w); quiet(c); lvl(w, c, { r: 1 }); c.slow = { pct: 0.4, t: 3 }; nearDummy(c, d);
+{ const w = mk({ runes: false }), c = w.champs[0], d = D(w); quiet(c); lvl(w, c, { r: 1 }); c.slow = { pct: 0.4, t: 3 }; nearDummy(c, d);   // 룬 끔: 기존 수치 검사 (칼날비 강화 평타는 주기가 달라짐)
   const m0 = c.mana;
   Core.step(w, [cmd('cast', c.id, { skill: 'r', ang: 0 })]);
   ok('6 마나 100, 쿨타임 85초, 지속 7초, 기존 둔화 제거', near(m0 - c.mana, 100, 1e-6) && near(c.cd.r, 85, TICK + EPS) && near(c.hl, 7, TICK + EPS) && c.slow === null, c.cd.r.toFixed(3));

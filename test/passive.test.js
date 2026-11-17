@@ -16,8 +16,8 @@ const ok = (name, cond, extra) => { (cond ? pass++ : fail++); console.log((cond 
 const near = (a, b, e = 0.01) => Math.abs(a - b) <= e;
 const TICK = Core.TICK;
 const run = (w, sec, cmds) => { const n = Math.round(sec / TICK); for (let i = 0; i < n; i++) Core.step(w, i === 0 ? cmds : []); };
-const mk = (opts) => {
-  const w = Core.createWorld(Object.assign({ players: [{ id: 'p1', key: 'darius', team: 0 }], dummy: true }, opts));
+const mk = (opts) => {   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7). 출혈·공격력 수치는 정복자 중첩이 섞이면 안 됨
+  const w = Core.createWorld(Object.assign({ players: [{ id: 'p1', key: 'darius', team: 0 }], dummy: true, runes: false }, opts));
   w.turrets.forEach(t => { t.dead = true; });   // 포탑이 끼어들지 않도록 격리
   return w;
 };
@@ -265,7 +265,7 @@ function stackFive(w, c, d) { for (let i = 0; i < 5; i++) hit(w, c, d); }
   hit(w, c, d); ok('E1 더미에 출혈 적용', d.bleed && d.bleed.stacks === 1); }
 
 { // E2. 챔피언에도 적용 (방어력 0으로 맞춰 총량을 정확히 확인)
-  const w = Core.createWorld({ players: [{ id: 'p1', key: 'darius', team: 0 }, { id: 'e1', key: 'yi', team: 1 }], dummy: false });
+  const w = Core.createWorld({ players: [{ id: 'p1', key: 'darius', team: 0 }, { id: 'e1', key: 'yi', team: 1 }], dummy: false, runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7)
   w.turrets.forEach(t => { t.dead = true; });
   const c = w.champs[0], y = w.champs[1];
   y.x = 400; y.y = 500; y.stats.regen = 0; y.stats.armor = 0;

@@ -41,7 +41,7 @@ const mk = (o) => {
   o = o || {};
   const players = [{ id: 'p1', key: o.key || 'darius', team: 0, set: o.set }];
   if (o.enemy) players.push({ id: 'e1', key: o.enemyKey || 'darius', team: 1 });
-  const w = Core.createWorld({ players, dummy: o.dummy !== false, devMode: true });
+  const w = Core.createWorld({ players, dummy: o.dummy !== false, devMode: true, runes: o.runes });   // o.runes: 룬 끔 옵션 전달(없으면 기본 켜짐)
   w.turrets.forEach(t => { t.dead = true; });
   w.champs.forEach(quiet);
   const a = w.champs[0];
@@ -77,7 +77,7 @@ ok('0 startSetOrder: 다리우스·마스터 이·아트록스 = blade, shield',
   ok('1 검: 아이템 목록 = [doranBlade], 물약 2개', JSON.stringify(a.items) === '["doranBlade"]' && a.potions === 2 && a.potion === null); }
 { // 평타 피해 정확: 허수아비(방어력 0)에게 총 공격력 그대로, 흡혈 × 2.5% 회복.
   // 가렌을 쓴다: 다리우스는 평타에 과다출혈이 붙어서 피해 합에 출혈 틱이 섞임(출혈은 평타 한 번의 피해가 아님)
-  const { w, a, d } = mk({ key: 'garen', set: 'blade' });
+  const { w, a, d } = mk({ key: 'garen', set: 'blade', runes: false });   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7). 정복자 중첩이 붙으면 총 공격력이 달라짐
   put(d, a, 130, 0);
   a.hp = a.stats.maxHp - 50;
   const expect = Core.calcStats('garen', 6).ad + 10;                 // 기본 공격력 91.5 + 검 10
@@ -316,7 +316,7 @@ ok('0 startSetOrder: 다리우스·마스터 이·아트록스 = blade, shield',
   Core.step(w, P.frameToCmds('p1', P.sanitizeFrame({ s: 1, mx: 0, my: 0, acts: [{ k: 'it', s: 'potion' }] }, false)));
   ok('6 프로토콜: 프레임 행동으로 실제로 물약을 마심', a.potions === 1 && a.potion !== null);
   ok('6 프로토콜: START_SET_KEYS = [blade, shield]', JSON.stringify(P.START_SET_KEYS) === '["blade","shield"]');
-  ok('6 프로토콜 버전 16(포탑 3:00 소멸 추가, 현재 버전 고정 검사)', P.VERSION === 16, P.VERSION); }
+  ok('6 프로토콜 버전 17(룬·선딜 취소 추가, 현재 버전 고정 검사)', P.VERSION === 17, P.VERSION); }
 
 // ---------------------------------------------------------------------
 // 7. 결정성: 같은 입력이면 같은 월드(물약·방패·검 포함)
