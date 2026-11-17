@@ -1757,12 +1757,13 @@ function drawSpellAim(me) {
   }
 }
 
-/* 평타 추적 중인 대상 표시(내 화면에만): 대상 발밑의 하늘색 점선 원 */
-function drawChaseMarker(me) {
-  if (!me.chase || me.dead) return;
-  const t = Core.unitOf(W(), me.chase.targetId); if (!t || t.dead) return;
+/* 평타 고정 대상 표시(내 화면에만): 대상 발밑의 점선 원. 사거리 안이거나 지금 치는 중이면 하늘색, 사거리 밖(따라가는 중)이면 흐리게 */
+function drawLockMarker(me) {
+  if (!me.lock || me.dead) return;
+  const t = Core.unitOf(W(), me.lock.targetId); if (!t || t.dead) return;
   const [x, y] = P2(t);
-  ctx.save(); ctx.strokeStyle = 'rgba(120,215,255,.95)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  const inReach = (me.atk && me.atk.targetId === t.id) || Core.edgeDist(t, me) <= Core.atkRange(me);
+  ctx.save(); ctx.strokeStyle = inReach ? 'rgba(120,215,255,.95)' : 'rgba(120,215,255,.4)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
   ctx.beginPath(); ctx.arc(x, y, px(t.r) + 5, 0, 7); ctx.stroke(); ctx.restore();
 }
 function drawFx() {
@@ -2026,7 +2027,7 @@ function render(now) {
   for (const t of w.turrets) drawTurretWarning(t, now);
   drawSkillWorld(me);
   drawSpellAim(me);
-  drawChaseMarker(me);
+  drawLockMarker(me);
 
   for (const c of w.champs) if (c.ge && !c.dead) drawGarenSpinGround(c);   // 심판 범위 원(챔피언보다 먼저: 바닥 효과)
   for (const c of w.champs) if (c.aq && !c.dead) drawAqTele(c);            // 아트록스 Q 예고(모두에게 보임, 챔피언 아래)

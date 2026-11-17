@@ -34,6 +34,7 @@ function yiHit(w, y, d) {
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: true })]);
   while (!(y.atk && y.atk.hit) && g++ < 4000) Core.step(w, []);
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: false })]);
+  y.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   return { dealt: d.total - tot0, hpLoss: hp0 - d.hp };
 }
 // 다리우스 R을 허수아비에 쓰고 0.6초 뒤 체력 감소량. 중첩·추가 공격력 조건을 넣어 씀

@@ -350,9 +350,9 @@ setWallMap(0, 0);                                                          // �
 { // 자동 추적 중 점멸: 추적 취소, 평타 버튼을 떼고 쏘면 그 자리에서 다시 따라가지 않음(위치 그대로)
   const { w, a, d } = mk(); put(d, a, 350, 0);                             // 평타 사거리(175) 밖, 추적 사거리 안
   Core.step(w, [inp('p1', 0, 0, true)]);
-  ok('7 준비: 평타 추적 중', !!a.chase);
+  ok('7 준비: 평타 고정(추적) 중', !!a.lock);
   Core.step(w, [inp('p1', 0, 0, false), spell('p1', 'flash', { ang: -PI / 2, aimed: true })]);
-  ok('7 점멸은 평타 추적을 취소', a.chase === null);
+  ok('7 점멸은 평타 고정(추적)을 취소', a.lock === null);
   const x0 = a.x, y0 = a.y;
   run(w, 1.0, []);
   ok('7 추적이 끊겨 뒤따르지 않음(위치 그대로)', a.x === x0 && a.y === y0); }

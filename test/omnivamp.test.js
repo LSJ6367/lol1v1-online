@@ -39,6 +39,7 @@ const strikeOnce = (w, a, t) => {
   while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
   const out = { dealt: p0 - pool(t), gain: a.hp - h0 };
   Core.step(w, [inp(a.id, 0, 0, false)]);
+  a.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   return out;
 };
 

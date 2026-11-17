@@ -32,6 +32,7 @@ function hit(w, c, t) {
   let pre = t.hp; g = 0;
   while (!(c.atk && c.atk.hit) && g++ < 2000) { pre = t.hp; Core.step(w, []); }
   Core.step(w, [{ type: 'input', id: c.id, mx: 0, my: 0, atk: false }]);
+  c.lock = null;   // 평타 고정은 버튼을 떼도 남음(DESIGN_ATTACK2 T4). 한 번만 치는 측정이므로 여기서 고정을 끊음
   return pre;
 }
 const drain = (w, t) => { let g = 0; while (t.bleed && g++ < 2000) Core.step(w, []); };
@@ -110,6 +111,7 @@ function hit_track(w, c, t) {
   t._lastTotal = t.bleed ? t.bleed.total : 0;
   let h = t.hp;
   Core.step(w, [{ type: 'input', id: c.id, mx: 0, my: 0, atk: false }]);
+  c.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   drops.push(h - t.hp); h = t.hp;      // 평타 입력 해제 스텝(출혈 1틱)
   g = 0;
   while (t.bleed && g++ < 2000) { Core.step(w, []); drops.push(h - t.hp); h = t.hp; }

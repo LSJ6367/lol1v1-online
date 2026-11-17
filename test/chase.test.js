@@ -1,7 +1,8 @@
 /* =====================================================================
-   평타 자동 추적 규칙 테스트 (docs/spec/attack-chase.md)
-   - 평타 버튼을 눌렀을 때 사거리 안에 대상이 없으면 가장 가까운 챔피언(없으면 더미)을 찾아 이동하고,
-     사거리 안에 들어오면 평타를 칩니다. 조이스틱 입력·성공한 스킬 시전 등으로 취소됩니다.
+   평타 고정·추적 규칙 테스트 (docs/spec/attack-chase.md, 평타 v2 DESIGN_ATTACK2.md T4·T5)
+   - 평타 버튼을 누른 순간 사거리 안 가장 가까운 적(없으면 찾는 거리 안의 챔피언, 없으면 더미)을 고정한다.
+     사거리 밖이면 따라가고, 사거리 안이면 계속 친다. 버튼을 떼도 고정은 남는다.
+     조이스틱 입력·성공한 스킬 시전·점화/점멸 등으로 풀린다. 물약은 풀지 않는다.
    - 6레벨 기준. 포탑은 격리(죽은 상태), 자연 회복은 끔. 거리 단위는 유닛(히트박스 끝 기준).
    ===================================================================== */
 const Core = require('../shared/core.js');
@@ -40,21 +41,21 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
 // ---------------------------------------------------------------------
 { const w = mk(); placeRight(w, 600); const p = P(w), e = E(w);
   press(w, 'p1');
-  ok('a 평타 누름(대상 600 유닛) → 추적 대상 e1', !!p.chase && p.chase.targetId === 'e1', JSON.stringify(p.chase));
+  ok('a 평타 누름(대상 600 유닛) → 고정 대상 e1', !!p.lock && p.lock.targetId === 'e1', JSON.stringify(p.lock));
   const full = px(p.stats.ms) * TICK;          // 한 틱에 가는 거리 = 이속 × 1/60초
   let n = 0, allFull = true, decreasing = true, prev = gap(p, e);
-  while (p.chase && n < ticks(3)) {
+  while (!p.atk && n < ticks(3)) {             // 사거리 안에 들어와 평타가 시작될 때까지 따라감
     const x0 = p.x, y0 = p.y;
     Core.step(w, []); n++;
-    if (p.chase && Math.abs(Math.hypot(p.x - x0, p.y - y0) - full) > 1e-6) allFull = false;
+    if (!p.atk && Math.abs(Math.hypot(p.x - x0, p.y - y0) - full) > 1e-6) allFull = false;
     const g = gap(p, e); if (g > prev + 1e-9) decreasing = false; prev = g;
   }
   ok('a 추적 중 매 틱 이동 거리 = 이속 × 1/60초', allFull && n > 10, `${n}틱`);
   ok('a 추적 중 대상과의 거리가 매 틱 줄어듦', decreasing);
-  ok('a 사거리(175) 안에 들어오면 추적 해제 + 대상에게 평타 시작', !p.chase && !!p.atk && p.atk.targetId === 'e1');
+  ok('a 사거리(175) 안에 들어오면 대상에게 평타 시작 · 고정은 그대로', !!p.lock && !!p.atk && p.atk.targetId === 'e1');
   ok('a 평타 시작 거리는 사거리 안(한 걸음 이내)', gap(p, e) <= 175 + 1e-6 && gap(p, e) > 175 - full / px(1) - 1e-6, gap(p, e).toFixed(2));
   run(w, ticks(0.5), []);
-  ok('a 대상이 사거리 안이면 평타 끝난 뒤에도 추적이 다시 붙지 않음', !p.chase);
+  ok('a 평타가 끝나도 고정 유지(버튼을 누르고 있는 동안 계속 공격)', !!p.lock && p.lock.targetId === 'e1');
 }
 
 // ---------------------------------------------------------------------
@@ -84,7 +85,7 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   d.x = p.x - px(300 + 70 + 55); d.y = 500;       // 더미: 300 유닛 왼쪽 (가까움)
   e.x = p.x + px(800 + 55 + 55); e.y = 500;       // 챔피언: 800 유닛 오른쪽 (멂)
   press(w, 'p1');
-  ok('c 더미(300)보다 챔피언(800)을 우선', !!p.chase && p.chase.targetId === 'e1', JSON.stringify(p.chase));
+  ok('c 더미(300)보다 챔피언(800)을 우선', !!p.lock && p.lock.targetId === 'e1', JSON.stringify(p.lock));
   ok('c Core.chaseTarget도 챔피언을 고름', Core.chaseTarget(w, p) === e);
 }
 { const w = mk({ dummy: true }); const p = P(w), e = E(w), d = D(w);
@@ -92,7 +93,7 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   d.x = p.x - px(300 + 70 + 55); d.y = 500;       // 더미: 300 유닛 왼쪽
   e.x = p.x + px(1300 + 55 + 55); e.y = 500;     // 챔피언: 1300 유닛 (찾는 거리 1200 밖)
   press(w, 'p1');
-  ok('c 챔피언이 1200 밖이면 더미를 추적', !!p.chase && p.chase.targetId === 'dummy1', JSON.stringify(p.chase));
+  ok('c 챔피언이 1200 밖이면 더미를 추적', !!p.lock && p.lock.targetId === 'dummy1', JSON.stringify(p.lock));
   let g = 0; while (D(w).total <= 0 && g++ < ticks(4)) Core.step(w, []);
   ok('c 더미 추적 → 평타로 더미가 맞음', D(w).total > 0, D(w).total.toFixed(1));
 }
@@ -100,14 +101,14 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   const p = P(w), d = D(w);
   p.x = 600; p.y = 500; d.x = p.x - px(300 + 70 + 55); d.y = 500;
   press(w, 'p1');
-  ok('c 적 챔피언이 없으면 더미를 추적(연습 모드)', !!p.chase && p.chase.targetId === 'dummy1');
+  ok('c 적 챔피언이 없으면 더미를 추적(연습 모드)', !!p.lock && p.lock.targetId === 'dummy1');
 }
 { // 포탑은 추적 대상이 아님 (살아 있는 적 포탑이 가까이 있어도)
   const w = Core.createWorld({ players: [{ id: 'p1', key: 'darius', team: 0 }], dummy: false });
   const p = P(w), t = w.turrets.find(u => u.team === 1);
   p.x = t.x - px(400 + 175 + 55); p.y = t.y;
   press(w, 'p1');
-  ok('c 살아 있는 적 포탑은 추적 대상이 아님', p.chase === null && evsOf(w).some(e => e.type === 'text' && e.txt === '사거리 내 대상 없음'));
+  ok('c 살아 있는 적 포탑은 추적 대상이 아님', p.lock === null && evsOf(w).some(e => e.type === 'text' && e.txt === '사거리 내 대상 없음'));
 }
 
 // ---------------------------------------------------------------------
@@ -119,7 +120,7 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   e.x = p.x + px(1300 + 55 + 55); e.y = 500;     // 챔피언도 1200 밖
   press(w, 'p1');
   const evs = evsOf(w);
-  ok('d 1200 안에 대상이 없으면 추적 없음 · 평타 없음', p.chase === null && !p.atk);
+  ok('d 1200 안에 대상이 없으면 추적 없음 · 평타 없음', p.lock === null && !p.atk);
   ok('d "사거리 내 대상 없음" 텍스트(본인에게)', evs.some(x => x.type === 'text' && x.txt === '사거리 내 대상 없음' && x.to === 'p1'));
   ok('d 대상이 없어도 사거리 표시는 나옴', atkFx(evs).length === 1);
 }
@@ -129,55 +130,55 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
 // ---------------------------------------------------------------------
 { const w = mk(); placeRight(w, 600); const p = P(w);
   press(w, 'p1'); run(w, ticks(0.2), []);
-  ok('e 추적 중(0.2초 뒤)', !!p.chase);
+  ok('e 추적 중(0.2초 뒤)', !!p.lock);
   Core.step(w, [inp('p1', -1, 0, true)]);        // 왼쪽 조이스틱 (평타 버튼은 계속 누르고 있음)
-  ok('e 조이스틱 입력 → 추적 취소', p.chase === null);
+  ok('e 조이스틱 입력 → 추적 취소', p.lock === null);
   let restarted = false;
-  for (let i = 0; i < ticks(0.5); i++) { Core.step(w, []); if (p.chase) restarted = true; }
+  for (let i = 0; i < ticks(0.5); i++) { Core.step(w, []); if (p.lock) restarted = true; }
   ok('e 조이스틱을 쥔 채 평타를 누르고 있어도 다시 추적하지 않음', !restarted);
   Core.step(w, [inp('p1', 0, 0, true)]);         // 조이스틱을 놓음, 평타는 여전히 누르고 있음
   run(w, ticks(0.5), []);
-  ok('e 취소 뒤 평타를 누르고 있는 동안에는 재추적 없음(버튼을 떼야 함)', !p.chase);
+  ok('e 취소 뒤 평타를 누르고 있는 동안에는 재추적 없음(버튼을 떼야 함)', !p.lock);
   Core.step(w, [inp('p1', 0, 0, false)]);        // 평타를 뗌
   Core.step(w, [inp('p1', 0, 0, true)]);         // 다시 누름
-  ok('e 평타를 떼었다 다시 누르면 추적 시작', !!p.chase && p.chase.targetId === 'e1');
+  ok('e 평타를 떼었다 다시 누르면 추적 시작', !!p.lock && p.lock.targetId === 'e1');
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('levelup', 'p1', { skill: 'q' })]);
-  ok('e 레벨업은 추적을 취소하지 않음', !!p.chase && p.sk.q === 1);
+  ok('e 레벨업은 추적을 취소하지 않음', !!p.lock && p.sk.q === 1);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);   // 다리우스 E 성공
   p.sk.e = 1; p.mana = p.stats.maxMana;
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
-  ok('e 다리우스 E 성공 → 추적 취소 · 포획 시전 시작', p.chase === null && !!p.cast && p.cast.type === 'e');
+  ok('e 다리우스 E 성공 → 추적 취소 · 포획 시전 시작', p.lock === null && !!p.cast && p.cast.type === 'e');
   run(w, ticks(0.5), []);
-  ok('e E 뒤 평타 버튼을 누르고 있어도 취소된 추적은 되살아나지 않음', p.chase === null);
+  ok('e E 뒤 평타 버튼을 누르고 있어도 취소된 추적은 되살아나지 않음', p.lock === null);
 }
 { const w = mk({ players: [{ id: 'p1', key: 'yi', team: 0 }, { id: 'e1', key: 'darius', team: 1 }] }); placeRight(w, 600); const p = P(w);
   p.sk.r = 1; p.mana = p.stats.maxMana;          // 마스터 이 R 성공
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('cast', 'p1', { skill: 'r' })]);
-  ok('e 마스터 이 R 성공 → 추적 취소 · 최후의 전사 시작', p.chase === null && p.hl > 0);
+  ok('e 마스터 이 R 성공 → 추적 취소 · 최후의 전사 시작', p.lock === null && p.hl > 0);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);   // 쿨타임 중 E: 실패 → 추적 유지
   p.sk.e = 1; p.mana = p.stats.maxMana; p.cd.e = 5;
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
-  ok('e 쿨타임 중 E 실패 → 추적 유지', !!p.chase && p.chase.targetId === 'e1' && p.cast === null);
+  ok('e 쿨타임 중 E 실패 → 추적 유지', !!p.lock && p.lock.targetId === 'e1' && p.cast === null);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);   // 마나 부족 E: 실패 → 추적 유지
   p.sk.e = 1; p.mana = 0;
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('cast', 'p1', { skill: 'e', ang: 0 })]);
-  ok('e 마나 부족 E 실패 → 추적 유지', !!p.chase && p.cast === null);
+  ok('e 마나 부족 E 실패 → 추적 유지', !!p.lock && p.cast === null);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);   // 사거리(525) 안 대상 없는 R: 실패 → 추적 유지
   p.sk.r = 1; p.mana = p.stats.maxMana;
   press(w, 'p1'); run(w, ticks(0.2), []);
   Core.step(w, [cmd('cast', 'p1', { skill: 'r', ang: 0 })]);
-  ok('e 대상 없는 R 실패 → 추적 유지', !!p.chase && p.cast === null);
+  ok('e 대상 없는 R 실패 → 추적 유지', !!p.lock && p.cast === null);
 }
 
 // ---------------------------------------------------------------------
@@ -187,24 +188,24 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   e.sk.q = 1; e.mana = e.stats.maxMana; e.cd.q = 0;
   press(w, 'p1'); run(w, ticks(0.1), []);
   Core.step(w, [cmd('cast', 'e1', { skill: 'q', ang: 0 })]);   // 상대 마스터 이가 일격필살 → 대상 지정 불가
-  ok('f 대상이 대상 지정 불가가 되면 추적 취소', e.untarget === true && p.chase === null);
+  ok('f 대상이 대상 지정 불가가 되면 추적 취소', e.untarget === true && p.lock === null);
   run(w, ticks(0.4), []);                         // 일격필살 등장(0.9초) 전
-  ok('f 대상 지정 불가 동안 다른 대상이 없으면 추적 없음', p.chase === null && !p.atk && e.untarget === true);
+  ok('f 대상 지정 불가 동안 다른 대상이 없으면 추적 없음', p.lock === null && !p.atk && e.untarget === true);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w), e = E(w);
   press(w, 'p1'); run(w, ticks(0.2), []);
   e.dead = true; e.respawn = 5;                   // 대상이 죽음
   Core.step(w, []);
-  ok('f 대상이 죽으면 추적 취소', p.chase === null);
+  ok('f 대상이 죽으면 추적 취소', p.lock === null);
 }
 { const w = mk(); placeRight(w, 600); const p = P(w);
   press(w, 'p1'); run(w, ticks(0.2), []);
   p.hp = 1; p.bleed = { stacks: 5, t: 5, total: 5000, acc: 0, txtT: 0, src: 'e1', pen: 0 };   // 과다출혈로 내가 죽음
   Core.step(w, []);
-  ok('f 내가 죽으면 추적 취소', p.dead && p.chase === null);
+  ok('f 내가 죽으면 추적 취소', p.dead && p.lock === null);
   Core.step(w, [inp('p1', 0, 0, false)]);         // 부활까지 평타 버튼을 뗌
   run(w, ticks(6), []);
-  ok('f 부활 후 추적 없음', !p.dead && p.chase === null);
+  ok('f 부활 후 추적 없음', !p.dead && p.lock === null);
 }
 
 // ---------------------------------------------------------------------
@@ -219,26 +220,27 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
 }
 
 // ---------------------------------------------------------------------
-// (h) 누르고 있기: 첫 평타 뒤에도 계속 평타 · 대상이 사거리 밖으로 나가면 누르고 있는 동안 추적 재개
+// (h) 누르고 있기: 첫 평타가 시작돼도 고정 유지(T4) · 계속 평타 · 대상이 사거리 밖으로 나가면 누르고 있는 동안 따라감
 // ---------------------------------------------------------------------
 { const w = mk(); placeRight(w, 600); const p = P(w), e = E(w);
   press(w, 'p1');
-  let attacks = 0, seen = null, g = 0, chaseAtFirst = 'unset';
-  while (attacks < 2 && g++ < ticks(10)) {
+  let attacks = 0, seen = null, g = 0, lockAtFirst = null;
+  while (attacks < 1 && g++ < ticks(10)) {
     Core.step(w, []);
-    if (p.atk && p.atk !== seen) { seen = p.atk; attacks++; if (attacks === 1) chaseAtFirst = p.chase; }
+    if (p.atk && p.atk !== seen) { seen = p.atk; attacks++; lockAtFirst = p.lock; }
   }
-  ok('h 첫 평타가 시작되면 추적은 해제됨', attacks >= 1 && chaseAtFirst === null);
+  ok('h 첫 평타가 시작돼도 고정은 해제되지 않음', attacks === 1 && !!lockAtFirst && lockAtFirst.targetId === 'e1');
   while (attacks < 4 && g++ < ticks(10)) {
     Core.step(w, []);
     if (p.atk && p.atk !== seen) { seen = p.atk; attacks++; }
   }
   ok('h 계속 누르고 있으면 사거리 안의 대상에게 평타가 계속 나감', attacks >= 4, `${attacks}회`);
-  ok('h 그동안 추적은 다시 붙지 않음', !p.chase);
-  const hpBefore = e.hp; run(w, ticks(0.3), []);
+  ok('h 그동안 고정 대상은 그대로 e1', !!p.lock && p.lock.targetId === 'e1');
+  run(w, ticks(0.3), []);
   e.x = p.x + px(600 + 55 + 55); e.y = p.y;      // 대상이 600 유닛 밖으로 빠져나감 (버튼은 계속 누르고 있음)
-  let g2 = 0; while (!p.chase && g2++ < ticks(2.5)) Core.step(w, []);
-  ok('h 누르고 있는 채로 대상이 나가면 추적 재개', !!p.chase && p.chase.targetId === 'e1', `${(g2 * TICK).toFixed(2)}초 뒤`);
+  const d0 = gap(p, e);
+  run(w, ticks(1), []);
+  ok('h 누르고 있는 채로 대상이 나가면 따라감(고정 유지, 거리 줄어듦)', !!p.lock && p.lock.targetId === 'e1' && gap(p, e) < d0 - 100, `${d0.toFixed(0)} → ${gap(p, e).toFixed(0)}`);
 }
 
 // ---------------------------------------------------------------------
@@ -249,10 +251,10 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   press(w, 'p1'); run(w, ticks(0.1), []);
   e.x = p.x + px(1400 + 55 + 55); e.y = p.y;    // 1400 유닛: 아직 포기 전
   Core.step(w, []);
-  ok('j 대상이 1400 유닛이어도 추적 유지', !!p.chase);
+  ok('j 대상이 1400 유닛이어도 추적 유지', !!p.lock);
   e.x = p.x + px(1600 + 55 + 55); e.y = p.y;    // 1600 유닛: 포기
   Core.step(w, []);
-  ok('j 대상이 1500 유닛을 넘으면 추적 포기', p.chase === null);
+  ok('j 대상이 1500 유닛을 넘으면 추적 포기', p.lock === null);
 }
 
 // ---------------------------------------------------------------------
@@ -261,11 +263,11 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
 { const w = mk(); placeRight(w, 190); const p = P(w);
   p.wBuff = true;                              // 175 < 190 ≤ 200
   press(w, 'p1');
-  ok('k W 강화 중 사거리 200 → 추적 없이 바로 평타', p.chase === null && !!p.atk && p.atk.targetId === 'e1');
+  ok('k W 강화 중 사거리 200 → 고정하고 바로 평타(이동 없음)', !!p.lock && p.lock.targetId === 'e1' && !!p.atk && p.atk.targetId === 'e1');
 }
 { const w = mk(); placeRight(w, 190); const p = P(w);
   press(w, 'p1');
-  ok('k W 없으면 사거리 175 밖 → 추적', !!p.chase && p.chase.targetId === 'e1');
+  ok('k W 없으면 사거리 175 밖 → 추적', !!p.lock && p.lock.targetId === 'e1');
 }
 
 // ---------------------------------------------------------------------
@@ -276,7 +278,7 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
   Core.step(w, [cmd('cast', 'p1', { skill: 'w' })]);
   const meditating = !!p.med;
   press(w, 'p1');
-  ok('l 명상 중 평타 버튼 → 명상 끊기고 추적 시작', meditating && !p.med && !!p.chase && p.chase.targetId === 'e1', `명상 시작=${meditating}`);
+  ok('l 명상 중 평타 버튼 → 명상 끊기고 추적 시작', meditating && !p.med && !!p.lock && p.lock.targetId === 'e1', `명상 시작=${meditating}`);
 }
 
 // ---------------------------------------------------------------------
@@ -297,7 +299,7 @@ function placeRight(w, dist) { const p = P(w), e = E(w); p.x = 600; p.y = 500; e
     placeRight(w, 900); D(w).x = 265; D(w).y = 500;
     P(w).sk.e = 1; P(w).mana = P(w).stats.maxMana;
     let sawChase = false;
-    for (let i = 0; i < 900; i++) { Core.step(w, script[i] || []); if (P(w).chase) sawChase = true; }
+    for (let i = 0; i < 900; i++) { Core.step(w, script[i] || []); if (P(w).lock) sawChase = true; }
     return { w, sawChase };
   };
   const a = play(), b = play();

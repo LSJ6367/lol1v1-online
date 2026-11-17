@@ -75,11 +75,14 @@ const CHAMPS = {
 /* 다리우스 패시브: 과다출혈. ratio = 중첩당 추가 공격력 계수(사용자 수정 2026-11-12: 총 공격력 → 추가 공격력) */
 const BLEED = { dur: 5, max: 5, base: 13, perLvl: 1, ratio: 0.3, buffBase: 30, buffPerLvl: 5 };
 
-/* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 */
+/* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 (선딜 22% · 후딜 13% · 나머지 65%는 이동 가능·쿨 대기) */
 const WINDUP = 0.22, BACKSWING = 0.13;
+/* 평타 v2 (docs/spec/attack-v2.md, DESIGN_ATTACK2.md T2). true면 스킬이 끝나는 순간 평타 대기시간을 0으로 만들어 바로 평타 가능.
+   false면 후딜 취소만 적용되고 남은 대기시간은 그대로 */
+const ATTACK_RESET_ON_SKILL = true;
 
-/* 평타 자동 추적 (docs/spec/attack-chase.md). search: 찾는 거리(히트박스 끝 기준, 유닛).
-   추적 중 대상이 search + 300 유닛보다 멀어지면 포기 */
+/* 평타 고정 (docs/spec/attack-v2.md 2, DESIGN_ATTACK2.md T4·T5). 평타 버튼을 누른 순간 대상을 고정하고, 버튼을 떼도 계속 공격.
+   고정 대상이 사거리 밖이면 따라감. search: 찾는 거리(히트박스 끝 기준, 유닛). 고정 대상이 search + 300 유닛보다 멀어지면 포기 */
 const CHASE = { search: 1200 };
 
 /* 다리우스 액티브 스킬. 배열은 스킬 레벨 순서(1~5). 거리 단위는 유닛 */
@@ -259,7 +262,7 @@ function makeChamp(id, key, team, items, potions, bonus) {
     air: 0, airMax: 1, slow: null, pull: null, pendSlow: false, bleed: null,
     dead: false, respawn: 0,
     dstack: 0, dhit: null, yq: null, untarget: false, med: null, medPost: 0, medLv: 0, wuju: 0, hl: 0,
-    chase: null, chaseHold: false,                    // 평타 자동 추적 대상 {targetId}. chaseHold: 조이스틱·스킬로 취소한 뒤 평타 버튼을 뗄 때까지 재추적 금지
+    lock: null, lockHold: false,                      // 평타 고정 대상 {targetId}(T4). lockHold: 조이스틱·스킬·점화·점멸로 고정을 푼 뒤 평타 버튼을 뗄 때까지 새 고정 금지
     bonus,                                            // 추가 스탯(아이템에서 계산). omni = 모든 피해 흡혈(0.2 = 20%). 부활하면 items에서 다시 계산
     items: items.slice(),                             // 패시브 아이템 목록(예: ['doranBlade']). 부활해도 유지
     potions: potions,                                 // 체력 물약 남은 개수. 부활해도 그대로(다시 채우지 않음)
@@ -325,7 +328,7 @@ function targetInRange(w, c) {
   for (const u of enemiesOf(w, c)) { const d = edgeDist(u, c); if (d <= range && d < bd) { best = u; bd = d; } }
   return best;
 }
-/* 자동 추적 대상: 찾는 거리(CHASE.search) 안의 가장 가까운 적 챔피언. 적 챔피언이 하나도 없으면 가장 가까운 더미(연습용) */
+/* 추적 대상(고정 대상이 사거리 밖일 때 따라갈 상대): 찾는 거리(CHASE.search) 안의 가장 가까운 적 챔피언. 적 챔피언이 하나도 없으면 가장 가까운 더미(연습용) */
 function chaseTarget(w, c) {
   const lim = px(CHASE.search);
   let champ = null, bc = Infinity, dummy = null, bdm = Infinity;
@@ -337,8 +340,13 @@ function chaseTarget(w, c) {
   }
   return champ || dummy;
 }
-/* 추적 중 플레이어가 조이스틱·스킬로 취소: 평타 버튼을 뗄 때까지 다시 추적하지 않음(누르고 있는 채로 곧바로 되살아나지 않게) */
-function cancelChase(c) { if (c.chase) { c.chase = null; c.chaseHold = true; } }
+/* 평타 고정 해제(T5): 조이스틱·성공한 스킬·점화·점멸. 고정이 있었으면 풀고, 평타 버튼을 뗄 때까지 새 고정을 막음(누르고 있는 채로 곧바로 되살아나지 않게) */
+function dropLock(c) { if (c.lock) { c.lock = null; c.lockHold = true; } }
+/* 스킬이 성공해 시작될 때(T1): 진행 중이던 평타(선딜·후딜)를 끊고 고정도 푼다. 시전 시간이 있으면 끝날 때 skillEnd를 따로 부른다 */
+function skillStart(c) { c.atk = null; dropLock(c); }
+/* 스킬이 끝날 때(T2): 평타 대기시간을 0으로 만들어 바로 평타 가능. ATTACK_RESET_ON_SKILL이 false면 아무것도 안 함.
+   즉발은 시전 순간, 시전 시간이 있으면 끝나는 순간(또는 취소) 부른다. 물약·점화·점멸·아이템은 부르지 않는다 */
+function skillEnd(c) { if (ATTACK_RESET_ON_SKILL) c.atkCd = 0; }
 function ultTarget(w, c) {
   let best = null, bd = Infinity;
   for (const u of enemiesOf(w, c)) { if (!isChampLike(u)) continue; const d = edgeDist(u, c); if (d <= px(SK.r.range) && d < bd) { best = u; bd = d; } }
@@ -509,7 +517,7 @@ function settle(w, t, killer) {     // 체력이 0이면 처치 처리하고 tru
   else if (t.kind === 'champ') {
     const first = !t.dead;
     t.dead = true; t.respawn = RESPAWN_SEC; t.atk = null; t.cast = null; t.qPrep = null; t.wBuff = false;
-    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.chase = null; t.aq = null;
+    t.yq = null; t.untarget = false; t.med = null; t.medPost = 0; t.dhit = null; t.lock = null; t.aq = null;
     t.air = 0; t.pull = null; t.slow = null; t.bleed = null; t.pendSlow = false; t.moving = false;
     t.silence = null; t.shields = []; t.tenSrc = []; t.shred = null;     // 죽으면 보호막·침묵·강인함·방어력 감소도 사라짐
     t.ign = null;                                                        // 점화도 사라짐(소환사 주문 쿨타임은 나 자신의 것이라 남음)
@@ -637,8 +645,7 @@ function stepMove(w, c, dx, dy) {
    --------------------------------------------------------------------- */
 function startAttack(w, c, t) {
   const cyc = 1 / curAS(c);
-  c.atkCd = cyc;
-  c.chase = null;                  // 평타가 시작되면 자동 추적은 끝남 (추적으로 시작했든, 사거리 안 대상으로 시작했든)
+  c.atkCd = cyc;                   // 평타가 시작돼도 고정은 그대로 둠(고정 대상은 버튼을 떼도 계속 침, T4)
   c.facing = t.x < c.x ? -1 : 1;
   c.atk = { t: 0, wind: cyc * WINDUP, back: cyc * BACKSWING, targetId: t.id, hit: false };
 }
@@ -707,11 +714,13 @@ function castYi(w, c, k, say) {
   if (k === 'q') { tgt = yiQTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }   // 대상이 없으면 마나·쿨타임 소모 없음
   const cost = skMana(c, k);
   if (c.mana < cost) { say('마나 부족', '#8fb6e8'); return; }
-  c.mana -= cost; c.cd[k] = skCd(c, k); c.atk = null; cancelChase(c);   // 쿨타임은 시전 즉시 시작. 진행 중이던 평타와 평타 추적은 취소
-  if (k === 'q') startAlpha(w, c, tgt);
+  c.mana -= cost; c.cd[k] = skCd(c, k);
+  skillStart(c);                                      // 쿨타임은 시전 즉시 시작. 진행 중이던 평타와 평타 고정은 취소 (T1·T5)
+  if (k === 'q') startAlpha(w, c, tgt);               // 일격필살은 등장(yiAppear)할 때 스킬이 끝남 (T2)
   else if (k === 'w') startMed(c);
   else if (k === 'e') c.wuju = SKILLS.yi.e.dur;
   else { c.hl = SKILLS.yi.r.dur; c.slow = null; }     // 최후의 전사: 기존 둔화 제거, 지속 중 둔화 면역
+  if (k !== 'q') skillEnd(c);                         // 명상 시작·우주류 검술·최후의 전사는 시전 순간 끝남 (T2)
 }
 
 /* ---------------------------------------------------------------------
@@ -733,13 +742,13 @@ function garenRTarget(w, c) {
 }
 
 /* 심판 회전 종료 또는 취소: 재사용 대기시간은 이때부터 흐름(G10). 회전 중에는 cd.e가 0이라 버튼이 '취소'로 보임 */
-function stopSpin(c) { c.ge = null; c.cd.e = skCd(c, 'e'); }
+function stopSpin(c) { c.ge = null; c.cd.e = skCd(c, 'e'); skillEnd(c); }   // 회전이 끝나거나 취소되면 스킬 끝(T2)
 
 /* 심판 회전 시작: 회전 수 n = 7 + floor(추가 공속 / 25%) (레벨 성장 공속 포함, G9·DESIGN §2-5) */
 function startSpin(c, lv) {
   const E = SKILLS.garen.e;
   const n = E.baseSpins + Math.floor(bonusASPct(c) / E.asPerSpin + EPS);
-  c.atk = null; cancelChase(c);
+  skillStart(c);
   c.ge = { t: 0, lv, n, done: 0, hits: {} };
 }
 
@@ -788,16 +797,16 @@ function garenRTick(w, c, dt) {
   const R = SKILLS.garen.r, g = c.gr;
   g.t += dt;
   const t = unitOf(w, g.targetId);
-  if (!t || t.dead || t.untarget) {
-    c.gr = null; c.cd.r = 0;
+  if (!t || t.dead || t.untarget) {                 // 취소: 시전 끝(T2)
+    c.gr = null; c.cd.r = 0; skillEnd(c);
     text(w, c.x, c.y - px(75), '취소됨', '#b8c4cf', false, c.id);
     return;
   }
   if (g.t < R.cast - EPS) {
-    if (edgeDist(t, c) > px(R.range)) { c.gr = null; text(w, c.x, c.y - px(75), '빗나감', '#b8c4cf', false, c.id); }
+    if (edgeDist(t, c) > px(R.range)) { c.gr = null; skillEnd(c); text(w, c.x, c.y - px(75), '빗나감', '#b8c4cf', false, c.id); }   // 헛방: 시전 끝(T2)
     return;
   }
-  c.gr = null;
+  c.gr = null; skillEnd(c);                         // 적중: 시전 끝(T2)
   const dmg = R.base[g.lv - 1] + R.missPct[g.lv - 1] * (maxHpOf(t) - t.hp);
   fx(w, { fx: 'gsword', x: t.x, y: t.y });
   dealTrue(w, c, t, dmg);
@@ -809,17 +818,19 @@ function garenRTick(w, c, dt) {
 function castGaren(w, c, k, say) {
   const G = SKILLS.garen, lv = c.sk[k];
   if (k === 'q') {                                                // 결정타: 즉발. 둔화 제거 · 이동속도 · 다음 평타 강화
-    c.atk = null; cancelChase(c);
+    skillStart(c);
     c.slow = null;
     c.gqMs = G.q.msT[lv - 1]; c.gqMsPct = G.q.ms;
     c.gq = { t: G.q.empT, lv };
     c.cd.q = skCd(c, 'q');                                        // 강화 중에는 updateChamp에서 쿨타임이 멈춰 있음
+    skillEnd(c);
   } else if (k === 'w') {                                         // 용기: 피해 감소 · 보호막 · 강인함
-    c.atk = null; cancelChase(c);
+    skillStart(c);
     c.gw = { t: G.w.dur, lv };
     addShield(c, G.w.shield[lv - 1] + G.w.shieldBonusHp * bonusHP(c), G.w.shieldT, 'garenW');
     addTenacity(c, G.w.ten, G.w.tenT);
     c.cd.w = skCd(c, 'w');
+    skillEnd(c);
   } else if (k === 'e') {                                         // 심판: 다시 누르면 취소. 시작 뒤 cancelLock초 동안은 무시(연타 방지, 비용·글자 없음)
     if (c.ge) { if (c.ge.t >= G.e.cancelLock - EPS) stopSpin(c); return; }
     startSpin(c, lv);
@@ -827,7 +838,7 @@ function castGaren(w, c, k, say) {
     const tgt = garenRTarget(w, c);
     if (!tgt) { say('사거리 내 대상 없음'); return; }
     if (c.ge) stopSpin(c);                                        // 회전 즉시 멈추고 궁극기 시전
-    c.atk = null; cancelChase(c);
+    skillStart(c);
     c.cd.r = skCd(c, 'r');
     c.gr = { t: 0, targetId: tgt.id, lv };
     c.facing = tgt.x < c.x ? -1 : 1;
@@ -946,11 +957,12 @@ function castAatrox(w, c, k, ang, aimed, say) {
 
 /* 파멸의 돌진 시작(B4, B6): 방향은 시전 시점에 고정. 평타·평타 추적은 취소. 쿨타임은 시전 즉시 시작 */
 function startAatroxE(w, c, dir) {
-  c.atk = null; cancelChase(c);
+  skillStart(c);
   c.cd.e = skCd(c, 'e');
   c.dash = { t: 0, dir, x0: c.x, y0: c.y };
   c.faceAng = dir;
   c.facing = Math.cos(dir) < 0 ? -1 : 1;
+  skillEnd(c);                                          // 즉발(돌진 이동은 dash가 맡음, T2)
 }
 /* 돌진 방향(B4): 스킬 버튼을 끌어서 조준했을 때(aimed + 유한한 ang) > 조이스틱을 쥐고 있을 때 그 방향 > 마지막으로 움직인 방향(faceAng) */
 function aatroxDashDir(c, ang, aimed) {
@@ -972,10 +984,11 @@ function aatroxDashTick(w, c, dt) {
 
 /* 지옥사슬 시전(시전 0초, B3): 투사체를 시전 위치에서 ang 방향으로 쏨. 쿨타임은 시전 즉시 */
 function startAatroxW(w, c, ang) {
-  c.atk = null; cancelChase(c);
+  skillStart(c);
   c.cd.w = skCd(c, 'w');
   c.facing = Math.cos(ang) < 0 ? -1 : 1;
   c.aw = { x: c.x, y: c.y, ang, dist: 0, lv: c.sk.w };
+  skillEnd(c);                                          // 즉발(투사체는 따로 날아감, T2)
   fx(w, { fx: 'awFire', owner: c.id, x: c.x, y: c.y, ang });
 }
 /* 지옥사슬 투사체 한 틱(B1, B3). 이번 틱에 지나는 구간(길이 = 한 틱 이동, 폭 160)과 대상 히트박스가 겹치는 챔피언·허수아비 중
@@ -1049,14 +1062,15 @@ function aatroxCdr(c, sec) { if (c.apCd > 0) c.apCd = Math.max(0, c.apCd - sec);
 
 /* 세계의 종결자 발동(즉시 시전, 대상 없음). 지속 10초, 이동속도 효과는 10초에 걸쳐 줄어듦. 쿨타임은 시전 즉시 */
 function startAatroxR(w, c) {
-  c.atk = null; cancelChase(c);
+  skillStart(c);
   c.cd.r = skCd(c, 'r');
   c.ar = { t: 0, dur: SKILLS.aatrox.r.dur, msT: 0, lv: c.sk.r };
+  skillEnd(c);                                            // 즉발(T2)
   fx(w, { fx: 'arStart', owner: c.id });
 }
 function startAatroxQ(w, c, stage, ang) {
   const Q = SKILLS.aatrox.q;
-  c.atk = null; cancelChase(c);                           // 평타·평타 추적 취소. 시전 중 이동·평타 불가
+  skillStart(c);                                          // 평타·평타 고정 취소. 시전 중 이동·평타 불가. 끝은 aatroxQResolve(또는 취소)
   c.cd.q = skCd(c, 'q');                                  // A7: 단계를 시전할 때마다 쿨타임을 처음부터 다시 셈
   c.aq = { stage, t: 0, ang, lv: c.sk.q, x: c.x, y: c.y };   // 방향과 위치는 시전 시작 때 고정
   c.facing = Math.cos(ang) < 0 ? -1 : 1;
@@ -1068,6 +1082,7 @@ function cancelAatroxQ(c) {
   if (!c.aq) return;
   c.aqNext = c.aq.stage; c.aqWin = SKILLS.aatrox.q.window;
   c.aq = null;
+  skillEnd(c);                                            // 취소도 Q 시전이 끝난 것(T2)
 }
 function aatroxQTick(w, c, dt) {
   const A = c.aq;
@@ -1079,6 +1094,7 @@ function aatroxQTick(w, c, dt) {
 }
 /* 판정 (A5, A7, A8). 챔피언·허수아비(포탑 제외)마다 한 번: 끝부분이면 끝부분 피해 + 공중에 뜸, 몸통이면 기본 피해. 광역(흡혈 ×0.33) */
 function aatroxQResolve(w, c, A) {
+  skillEnd(c);                                            // 단계 판정 = 이 단계 시전이 끝남(T2)
   const Q = SKILLS.aatrox.q, S = Q['s' + A.stage], i = A.lv - 1;
   const sh = aatroxQShape(A.stage, A.x, A.y, A.ang), ad = totalAD(c);
   fx(w, { fx: 'aqHit', owner: c.id, stage: A.stage, ang: A.ang, x: A.x, y: A.y });
@@ -1129,12 +1145,13 @@ function castSkill(w, c, k, ang, aimed) {
   let tgt = null;
   if (k === 'r') { tgt = ultTarget(w, c); if (!tgt) { say('사거리 내 대상 없음'); return; } }
   c.mana -= cost; c.cd[k] = skCd(c, k);
-  c.atk = null; cancelChase(c);                       // 스킬을 쓰면 진행 중이던 평타 동작과 평타 추적은 취소
+  skillStart(c);                                      // 스킬을 쓰면 진행 중이던 평타 동작과 평타 고정은 취소 (T1·T5)
   if (k === 'e') c.facing = Math.cos(ang) < 0 ? -1 : 1;
-  if (k === 'q') {                                    // 준비 시간 후 휘두름. 준비 중에도 이동 가능
+  if (k === 'q') {                                    // 준비 시간 후 휘두름(끝은 updateChamp). 준비 중에도 이동 가능
     c.qPrep = { t: 0, dur: SK.q.prep, lv };
   } else if (k === 'w') {
     c.wBuff = true;
+    skillEnd(c);                                      // 즉발(T2)
   } else if (k === 'e') {
     c.cast = { type: 'e', t: 0, dur: SK.e.cast, ang };
     fx(w, { fx: 'fan', x: c.x, y: c.y, ang, range: px(HIT_R + SK.e.range), half: SK.e.angle / 2 * Math.PI / 180, life: 0.3 });
@@ -1264,7 +1281,7 @@ function castFlash(w, c, ang, aimed, say) {
   const from = { x: c.x, y: c.y }, to = flashTo(w, c, dir);
   if (to.x === from.x && to.y === from.y) { say('이동할 곳 없음'); return; }
   c.spCd.flash = SPELLS.flash.cd;
-  c.atk = null; cancelChase(c);
+  c.atk = null; dropLock(c);                                // 주문: 평타 선딜 취소 + 고정 해제(T5). 스킬이 아니므로 평타 대기시간은 그대로(T2)
   if (c.cast && c.cast.type === 'r') { c.cast.from = { x: to.x, y: to.y }; c.cast.to = { x: to.x, y: to.y }; }
   c.x = to.x; c.y = to.y;
   endMed(c);                                                // 마스터 이 명상 끊김(이동과 같은 끊김 경로): 끊긴 뒤 0.5초 피해 감소 유지
@@ -1276,6 +1293,7 @@ function castIgnite(w, c, say) {
   const t = igniteTarget(w, c);
   if (!t) { say('사거리 내 대상 없음'); return; }
   c.spCd.ignite = SPELLS.ignite.cd;
+  dropLock(c);                                              // 주문 성공: 평타 고정 해제(T5). 평타 진행은 그대로
   t.ign = { t: 0, src: c.id, n: 0 };
   text(w, t.x, t.y - px(62), '점화', '#ff9a3c', true);
   fx(w, { fx: 'ignite', src: c.id, targetId: t.id });
@@ -1355,6 +1373,7 @@ function yiAppear(w, c) {
   c.x = p.x; c.y = p.y;
   c.untarget = false; c.yq = null;
   c.facing = tx < c.x ? -1 : 1;
+  skillEnd(c);                                            // 일격필살은 등장할 때 끝남(T2)
   fx(w, { fx: 'blink', x: c.x, y: c.y, out: false });
 }
 /* 명상 한 틱: 끊김 판정(A5) → 유지 마나 소모(초당 최대 마나 6%) · 마나 0이면 즉시 종료 → 회복 · 1초마다 스택 · 4초 후 종료 */
@@ -1377,14 +1396,45 @@ function respawn(w, c) {
   Object.assign(c, makeChamp(c.id, c.key, c.team, c.items, c.potions, c.bonus), keep);
 }
 
-/* 평타 추적 한 틱. 취소 조건(조이스틱 입력, 끌려감·공중, 대상 없음·죽음·대상 지정 불가, search+300 밖)이면 추적을 끊고 null
-   → 이동은 조이스틱대로. 사거리 안이면 (평타 가능할 때) 평타를 시작하고 추적 종료. 아니면 대상 쪽 단위 방향 {dx,dy}를 돌려줌 */
-function chaseTick(w, c, locked) {
-  const t = unitOf(w, c.chase.targetId);
-  if (c.in.mx || c.in.my) { cancelChase(c); return null; }                         // 조이스틱: 취소(버튼을 뗄 때까지 재추적 금지)
-  if (locked || !t || t.dead || t.untarget || edgeDist(t, c) > px(CHASE.search + 300)) { c.chase = null; return null; }
+/* 평타를 새로 시작할 수 있는 상태(가렌 심판·궁극기, 아트록스 Q·돌진, 일격필살, 시전 중). 공중·끌림은 호출하는 쪽이 locked로 따로 봄 */
+const atkAllowed = c => !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && !c.dash;
+
+/* 누른 순간(T4): 사거리 안 가장 가까운 적을 고정하고 바로 평타. 없으면 추적 대상을 고정. 둘 다 없으면 "사거리 내 대상 없음".
+   누를 때마다 새로 고름(이전 고정은 버림). 조이스틱을 쥔 채 누르면 고정하지 않음(곧바로 풀리므로). 사거리 표시는 대상 없이 누른 순간에만 */
+function pickOnPress(w, c, joy) {
+  c.lockHold = false;
+  const t = targetInRange(w, c);
+  if (t) {
+    c.lock = joy ? null : { targetId: t.id };
+    if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t);
+    return;
+  }
+  fx(w, { fx: 'atkRange', owner: c.id, life: 0.6 });
+  const g = chaseTarget(w, c);
+  c.lock = g && !joy ? { targetId: g.id } : null;
+  if (!g && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
+}
+/* 누르고 있는 동안(고정 없음, 누른 순간이 아님): 사거리 안이면 그 대상을 치고 고정(누른 것과 같음). 조이스틱을 쥐었거나 고정을 푼 뒤(lockHold)에는 치기만 하고 고정은 안 함.
+   사거리 밖이면 추적 대상을 고정(같은 조건에서는 막힘). 평타 진행 중에는 새로 고르지 않음 */
+function holdAttack(w, c, joy) {
+  if (c.lock) return;                                       // 고정 중이면 lockTick이 맡음(고정 대상만 노림)
+  const t = targetInRange(w, c);
+  if (t) {
+    if (!joy && !c.lockHold) c.lock = { targetId: t.id };
+    if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t);
+    return;
+  }
+  if (joy || c.lockHold || c.atk) return;
+  const g = chaseTarget(w, c);
+  if (g) c.lock = { targetId: g.id };
+}
+/* 고정 대상 한 틱(T4·T5). 대상이 없음·죽음·지정 불가, 거리 search+300 밖, 공중·끌림이면 고정만 풀고 null(이동은 입력대로).
+   사거리 안이면 평타 가능할 때 평타를 시작하고 제자리. 밖이면 대상 쪽 단위 방향 {dx,dy}를 돌려줌. 고정된 대상 말고는 노리지 않음 */
+function lockTick(w, c, locked) {
+  const t = unitOf(w, c.lock.targetId);
+  if (locked || !t || t.dead || t.untarget || edgeDist(t, c) > px(CHASE.search + 300)) { c.lock = null; return null; }
   if (edgeDist(t, c) <= atkRange(c)) {
-    if (c.atkCd <= 0 && !c.atk && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && !c.dash) startAttack(w, c, t);   // 평타 시작과 함께 추적 해제
+    if (c.atkCd <= 0 && !c.atk && atkAllowed(c)) startAttack(w, c, t);
     return { dx: 0, dy: 0 };
   }
   const dx = t.x - c.x, dy = t.y - c.y, d = Math.hypot(dx, dy) || 1;
@@ -1423,13 +1473,16 @@ function updateChamp(w, c, dt) {
 
   // 공중에 뜸 / 끌려오는 중: 하려던 모든 행동이 취소되고 아무 행동도 할 수 없음 (피격은 그대로)
   const locked = c.air > 0 || !!c.pull;
-  if (locked) { c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; cancelAatroxQ(c); c.dash = null; }   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소, 아트록스 Q 시전 취소(피해 없음, 같은 단계 재사용 창 새로 열림, A6), 돌진 끊김
+  if (locked) {   // 공중에 뜸·끌려옴: 명상 끊김, 2연속 예약 취소, 아트록스 Q 시전 취소(피해 없음, 같은 단계 재사용 창 새로 열림, A6), 돌진 끊김, 평타 고정 해제
+    if (c.cast || c.qPrep) skillEnd(c);                   // 시전 중이던 다리우스 E·R·Q 준비가 끊김 = 스킬 끝(T2)
+    c.atk = null; c.cast = null; c.qPrep = null; endMed(c); c.dhit = null; cancelAatroxQ(c); c.dash = null; c.lock = null;
+  }
   // 쿨타임. 다리우스 W는 강화(wBuff)가 켜져 있는 동안 멈춰 있다가 강화 평타가 나간 뒤부터 흐름
   // 가렌 Q는 결정타 강화(gq) 동안 멈춰 있다가 강화가 끝나면(평타 또는 만료) 흐름
   for (const k of SKILL_KEYS) if (!(k === 'w' && c.wBuff) && !(k === 'q' && c.gq)) c.cd[k] = Math.max(0, c.cd[k] - dt);
 
   // 학살 준비 → 휘두르기
-  if (c.qPrep) { c.qPrep.t += dt; if (c.qPrep.t >= c.qPrep.dur) { const lv = c.qPrep.lv; c.qPrep = null; doDecimate(w, c, lv); } }
+  if (c.qPrep) { c.qPrep.t += dt; if (c.qPrep.t >= c.qPrep.dur) { const lv = c.qPrep.lv; c.qPrep = null; doDecimate(w, c, lv); skillEnd(c); } }   // 학살: 준비가 끝나 휘두르면 스킬 끝(T2)
   // 평타 선딜 → 타격 → 후딜
   if (c.atk) {
     const a = c.atk; a.t += dt;
@@ -1440,7 +1493,7 @@ function updateChamp(w, c, dt) {
   if (c.cast) {
     const k = c.cast; k.t += dt;
     if (k.type === 'r') { const p = Math.min(1, k.t / k.dur); c.x = k.from.x + (k.to.x - k.from.x) * p; c.y = k.from.y + (k.to.y - k.from.y) * p; }
-    if (k.t >= k.dur) { c.cast = null; finishCast(w, c, k); }
+    if (k.t >= k.dur) { c.cast = null; skillEnd(c); finishCast(w, c, k); }   // 포획·단두대: 시전이 끝나면 스킬 끝(T2)
   }
   if (c.dead) return;
   // 가렌: 심판 회전(공중에 뜨거나 끌려가도 계속 돎), 데마시아의 정의 시전
@@ -1463,12 +1516,17 @@ function updateChamp(w, c, dt) {
   c.atkCd = Math.max(0, c.atkCd - dt);
   c.noTgt = Math.max(0, c.noTgt - dt);
 
-  // 이동 (평타 추적 중이면 이번 틱 방향은 대상 쪽. 추적이 사거리 안에서 평타를 시작하면 아래 잠금에 의해 멈춤)
+  // 평타 고정(T4·T5), 이동 전에 처리: 조이스틱을 쥐면 고정 해제, 누른 순간의 새 대상이 이번 틱부터 쓰이도록(옛 대상을 치지 않게)
+  const joy = !!(c.in.mx || c.in.my);
+  if (joy && c.lock) dropLock(c);
+  if (c.in.edge && c.in.atk && !locked && atkAllowed(c)) pickOnPress(w, c, joy);
+
+  // 이동 (고정 중이면 이번 틱 방향은 고정 대상 쪽. 사거리 안이면 평타를 시작하고 아래 잠금에 의해 멈춤)
   // 파멸의 돌진(아트록스 E): 돌진 중에는 이번 틱 이동이 돌진 한 틱뿐(조이스틱 무시). 끝나는 틱에도 일반 이동은 하지 않음
   const dashing = !!c.dash;
   if (dashing) aatroxDashTick(w, c, dt);
   let mx = c.in.mx, my = c.in.my;
-  if (c.chase) { const ch = chaseTick(w, c, locked); if (ch) { mx = ch.dx; my = ch.dy; } }
+  if (c.lock) { const ch = lockTick(w, c, locked); if (ch) { mx = ch.dx; my = ch.dy; } }
   if (dashing || c.atk || c.cast || locked || c.yq || c.med || c.gr || c.aq) { mx = 0; my = 0; }   // 돌진·평타·시전·일격필살·명상·데마시아의 정의 시전 중, 공중에 뜬 동안에는 멈춤 (심판 회전 중에는 이동 가능)
   c.moving = !!(mx || my);
   if (c.moving) {
@@ -1478,19 +1536,9 @@ function updateChamp(w, c, dt) {
     if (Math.abs(mx) > 0.15) c.facing = mx < 0 ? -1 : 1;
   }
 
-  // 평타 입력
-  if (!c.in.atk) c.chaseHold = false;                  // 평타 버튼을 떼면 재추적 금지 해제
-  if (!locked && !c.cast && !c.yq && !c.ge && !c.gr && !c.aq && !c.dash && c.in.atk) {   // 가렌: 심판 회전·궁극기 시전 중에는 평타·자동 추적 시작 안 함(G11). 아트록스 돌진 중에도 시작 안 함
-    const t = c.chase ? null : targetInRange(w, c);   // 추적 중에는 쫓는 챔피언만 노림(가는 길에 포탑·허수아비가 사거리에 들어와도 무시)
-    if (c.chase) { /* chaseTick이 처리 */ }
-    else if (t) { if (c.atkCd <= 0 && !c.atk) startAttack(w, c, t); }
-    else {
-      if (c.in.edge) fx(w, { fx: 'atkRange', owner: c.id, life: 0.6 });   // 사거리 표시: 대상 없이 누른 순간에만 (추적과 무관)
-      const g = !c.chase && !c.atk && !c.chaseHold ? chaseTarget(w, c) : null;
-      if (g) { if (!(c.in.mx || c.in.my)) c.chase = { targetId: g.id }; }   // 조이스틱을 쥔 채 누르면 추적을 시작하지 않음(곧바로 취소되므로)
-      else if (c.in.edge && !c.chase && c.noTgt <= 0) { text(w, c.x, c.y - px(70), '사거리 내 대상 없음', '#b8c4cf', false, c.id); c.noTgt = 0.8; }
-    }
-  }
+  // 평타 입력(고정이 없을 때 누르고 있는 동안). 가렌 심판·궁극기, 아트록스 Q·돌진 중에는 시작 안 함(G11)
+  if (!c.in.atk) c.lockHold = false;                   // 평타 버튼을 떼면 새 고정 허용
+  if (c.in.atk && !c.in.edge && !locked && atkAllowed(c)) holdAttack(w, c, joy);
   c.in.edge = false;
   c.lunge = Math.max(0, c.lunge - dt / 0.16);
 }
@@ -1595,7 +1643,7 @@ function step(w, cmds) {
 
 return {
   // 데이터
-  TICK, MAP_W, MAP_H, U, HIT_R, START_LEVEL, RESPAWN_SEC, SPAWNS, HOME, TURRET_CFG, CHAMPS, BLEED, WINDUP, BACKSWING, SK, SKILL_KEYS, CHASE,
+  TICK, MAP_W, MAP_H, U, HIT_R, START_LEVEL, RESPAWN_SEC, SPAWNS, HOME, TURRET_CFG, CHAMPS, BLEED, WINDUP, BACKSWING, ATTACK_RESET_ON_SKILL, SK, SKILL_KEYS, CHASE,
   // 규칙
   setMap, isWalk, canStand, createWorld, step, drainEvents, calcStats,
   // 조회

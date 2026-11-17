@@ -57,6 +57,7 @@ const hitOnce = (w, a, t) => {
   Core.step(w, [inp(a.id, 0, 0, true)]);
   while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
   Core.step(w, [inp(a.id, 0, 0, false)]);
+  a.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   return p0 - pool(t);
 };
 
@@ -204,7 +205,7 @@ const hitOnce = (w, a, t) => {
   Core.step(w, [cmd('cast', 'p1', { skill: 'q', ang: 0 })]);
   ok('3 회전 중 Q 사용 가능: 강화 생김', !!c.gq && !!c.ge);
   Core.step(w, [inp('p1', 0, 0, true)]);
-  ok('3 회전 중 평타 버튼은 무시(평타 동작 없음)', !c.atk && !c.chase);
+  ok('3 회전 중 평타 버튼은 무시(평타 동작 없음)', !c.atk && !c.lock);
   Core.step(w, [inp('p1', 0, 0, false)]);
   until(w, () => !c.ge, 10);
   ok('3 회전이 끝나도 강화는 남아 있음(4.5초 안)', !!c.gq, c.gq && c.gq.t.toFixed(3));
@@ -515,7 +516,7 @@ const spinCount = bonusAS => { const w = mk(), c = gar(w); c.bonus.as = bonusAS;
   const x0 = c.x, y0 = c.y;
   run(w, 0.3, [inp('p1', 1, 0, true)]);
   ok('6 궁극기 시전 중 이동 불가', c.x === x0 && c.y === y0, `${c.x - x0}`);
-  ok('6 궁극기 시전 중 평타 불가', !c.atk && !c.chase); }
+  ok('6 궁극기 시전 중 평타 불가', !c.atk && !c.lock); }
 
 // ---------------------------------------------------------------------
 // 7. 결정성: 같은 명령 순서면 항상 같은 월드(JSON). 가렌·다리우스·마스터 이 모두
