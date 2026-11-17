@@ -850,6 +850,39 @@ function drawChampBar(c, cx, bottomY) {
   }
   drawLevelBadge(x0 - 4, y0 + h / 2, c.level);
 }
+/* 정복자 중첩 수(0~12). conq = 남은 시간 목록이고 원소 하나가 2중첩. 예전 월드 스냅숏에는 conq가 없을 수 있음 */
+const conqStacksOf = c => (c && Array.isArray(c.conq)) ? Math.min(12, 2 * c.conq.length) : 0;
+/* 정복자 12중첩 표시(모두에게 보임): 체력바 위 상태 줄(침묵·방어력 감소·점화) 바로 위에 노란 도끼. 월드 단위라 줌에 따라 체력바와 같이 커짐.
+   cx = 체력바 가운데, bottomY = 체력바 기준선(render 에서 drawChampBar 에 넘기는 값과 같음) */
+const AXE_H = 24;
+function drawConqAxe(c, cx, bottomY) {
+  const tags = (c.silence ? 1 : 0) + (c.shred ? 1 : 0) + (c.ign ? 1 : 0);   // 체력바 위 상태 줄 수(drawChampBar 와 같은 조건. 죽은 챔피언은 호출하지 않음)
+  const barTop = bottomY - 15 - (c.key === 'aatrox' && !!c.ar ? 14 : 0);      // 체력바 윗변 = drawChampBar 의 y0(세계의 종결자 중에는 피의 샘 막대 자리만큼 위)
+  const bob = Math.sin(clockT * 3) * 0.8;                                    // 아주 약하게 까딱임
+  const bottom = barTop - 4 - 11 * tags + bob, top = bottom - AXE_H;         // 도끼 아랫끝이 상태 줄 맨 윗줄 바로 위(줄 간격 11)
+  const pu = 0.5 + 0.5 * Math.sin(clockT * 4), gy = top + 11;
+  ctx.save();
+  const g = ctx.createRadialGradient(cx, gy, 1, cx, gy, 17);   // 뒤 빛: 맥동하는 노란 빛(그라데이션 하나)
+  g.addColorStop(0, `rgba(255,214,70,${(0.34 + 0.14 * pu).toFixed(3)})`); g.addColorStop(1, 'rgba(255,190,40,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, gy, 17, 0, 7); ctx.fill();
+  ctx.translate(cx, top); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // 자루: 짙은 금갈색 (위쪽이 날, 아래쪽 끝이 자루 끝)
+  ctx.fillStyle = '#8a5a24'; ctx.strokeStyle = '#24150a'; ctx.lineWidth = 0.9;
+  ctx.beginPath(); ctx.rect(-1, 5, 2, 17.6); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 22.6, 1.4, 0, 7); ctx.fillStyle = '#c9a14a'; ctx.fill(); ctx.stroke();
+  // 날: 양쪽 쐐기형 쌍날(위·아래 끝이 뾰족하고 바깥 날은 볼록). 밝은 노랑 #ffd23f, 어두운 외곽선
+  const bit = s => { ctx.beginPath(); ctx.moveTo(s * 1.2, 2.2); ctx.lineTo(s * 9.2, 0.6); ctx.quadraticCurveTo(s * 11, 7, s * 6.4, 12.6); ctx.quadraticCurveTo(s * 4.4, 11.8, s * 1.2, 10.8); ctx.closePath(); };
+  ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#5a3a00'; ctx.lineWidth = 1.1;
+  bit(-1); ctx.fill(); ctx.stroke();
+  bit(1); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#fff3b8'; ctx.lineWidth = 0.8;   // 날 안쪽 빛 줄(바깥 날을 따라)
+  ctx.beginPath(); ctx.moveTo(-7.4, 3.2); ctx.quadraticCurveTo(-9.2, 7, -6.2, 10.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(7.4, 3.2); ctx.quadraticCurveTo(9.2, 7, 6.2, 10.6); ctx.stroke();
+  // 자루 감싼 쇠 띠
+  ctx.fillStyle = '#e0b04a'; ctx.strokeStyle = '#24150a'; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.rect(-1.7, 7, 3.4, 2.4); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
 function drawTurretBar(t) {
   const w = 96, h = 10, x0 = t.x - w / 2, y0 = t.y - px(t.r) - 78;
   ctx.fillStyle = 'rgba(5,8,11,.9)'; rr(x0 - 1.5, y0 - 1.5, w + 3, h + 3, 2); ctx.fill();
@@ -2048,6 +2081,7 @@ function render(now) {
   for (const t of w.turrets) if (!t.dead && t.team !== me.team) drawTurretBar(t);
   for (const d of w.dummies) drawDummyBar(d);
   for (const c of w.champs) { if (c.yq) continue; const [x, y] = P2(c); drawChampBar(c, x, y - barH(c) - 7); }
+  for (const c of w.champs) { if (c.yq || c.dead || conqStacksOf(c) < 12) continue; const [x, y] = P2(c); drawConqAxe(c, x + 6, y - barH(c) - 7); }   // 정복자 12중첩: 도끼(모든 체력바 위에). x + 6 = 체력바 가운데
   if (!me.dead && !me.yq) drawSelfInfo(me);   // 나에게만: 명상 바·피해 감소 %, 우주류 검술 남은 시간
 
   // 떠오르는 숫자
