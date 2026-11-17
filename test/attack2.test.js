@@ -438,7 +438,7 @@ for (const c of CAST_TIME) {
 // G. 상수·내보내기
 // ---------------------------------------------------------------------
 ok('G1 CHASE.search 1200 (찾는 거리 그대로)', Core.CHASE.search === 1200);
-ok('G2 WINDUP 22% · BACKSWING 13%', near(Core.WINDUP, 0.22, 1e-12) && near(Core.BACKSWING, 0.13, 1e-12));
+ok('G2 WINDUP 18% · BACKSWING 17% (사용자 요청 2026-11-17)', near(Core.WINDUP, 0.18, 1e-12) && near(Core.BACKSWING, 0.17, 1e-12));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

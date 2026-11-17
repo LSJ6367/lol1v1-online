@@ -33,7 +33,7 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   ok('스폰 위치에서 서 있을 수 있음(맵 마스크)', Core.canStand(Core.SPAWNS[0].x, Core.SPAWNS[0].y));
   const hp0 = d.hp;
   Core.step(w, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]);
-  const cyc = 1 / c.stats.as, wind = cyc * 0.22, back = cyc * 0.13;
+  const cyc = 1 / c.stats.as, wind = cyc * Core.WINDUP, back = cyc * Core.BACKSWING;
   ok('평타 시작 후 c.atk 존재', !!c.atk);
   Core.step(w, [{ type: 'input', id: 'p1', mx: -1, my: 0, atk: false }]);
   const x1 = c.x; run(w, wind * 0.5);

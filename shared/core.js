@@ -76,7 +76,7 @@ const CHAMPS = {
 const BLEED = { dur: 5, max: 5, base: 13, perLvl: 1, ratio: 0.3, buffBase: 30, buffPerLvl: 5 };
 
 /* 평타 한 번의 주기(1/공속)에 선딜·후딜이 포함됩니다. 주기 대비 비율 (선딜 22% · 후딜 13% · 나머지 65%는 이동 가능·쿨 대기) */
-const WINDUP = 0.22, BACKSWING = 0.13;
+const WINDUP = 0.18, BACKSWING = 0.17;   // 선딜 18% · 후딜 17% (사용자 요청 2026-11-17, 이전 22%·13%)
 /* 평타 v2 (docs/spec/attack-v2.md, DESIGN_ATTACK2.md T2). true면 스킬이 끝나는 순간 평타 대기시간을 0으로 만들어 바로 평타 가능.
    false면 후딜 취소만 적용되고 남은 대기시간은 그대로 */
 const ATTACK_RESET_ON_SKILL = true;
