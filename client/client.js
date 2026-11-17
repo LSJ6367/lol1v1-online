@@ -729,7 +729,8 @@ function handleEvents() {
   for (const ev of session.drainEvents()) {
     if (ev.type === 'text') { if (!ev.to || ev.to === myId) incoming.push(ev); }
     else if (ev.type === 'fx') {
-      if (ev.fx === 'atkRange' && ev.owner !== myId) continue;   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
+      if (ev.fx === 'atkRange' && ev.owner !== myId) continue;
+      if (ev.fx === 'turretsGone') { showBanner('3:00 · 양쪽 포탑이 사라졌어요', false, 3); continue; }   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
       const o = Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 });
       if (o.fx === 'yslash') o.dir = o.ang + Math.PI / 2 + YSLASH_OFF[yslashN++ % YSLASH_OFF.length];
       if (o.fx === 'slash' && o.key === 'garen' && garenEmpowered()) fxList.push({ fx: 'gburst', x: o.x, y: o.y, ang: o.ang, t: 0, life: 0.38 });   // 결정타 강화 평타 적중: 금빛 섬광

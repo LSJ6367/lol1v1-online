@@ -316,7 +316,7 @@ ok('0 startSetOrder: 다리우스·마스터 이·아트록스 = blade, shield',
   Core.step(w, P.frameToCmds('p1', P.sanitizeFrame({ s: 1, mx: 0, my: 0, acts: [{ k: 'it', s: 'potion' }] }, false)));
   ok('6 프로토콜: 프레임 행동으로 실제로 물약을 마심', a.potions === 1 && a.potion !== null);
   ok('6 프로토콜: START_SET_KEYS = [blade, shield]', JSON.stringify(P.START_SET_KEYS) === '["blade","shield"]');
-  ok('6 프로토콜 버전 15(평타 v2 추가, 현재 버전 고정 검사)', P.VERSION === 15, P.VERSION); }
+  ok('6 프로토콜 버전 16(포탑 3:00 소멸 추가, 현재 버전 고정 검사)', P.VERSION === 16, P.VERSION); }
 
 // ---------------------------------------------------------------------
 // 7. 결정성: 같은 입력이면 같은 월드(물약·방패·검 포함)

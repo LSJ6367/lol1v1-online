@@ -154,13 +154,14 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   const w2 = mk(), c2 = w2.champs[0], t2 = w2.turrets[1]; c2.x = t2.x - Core.px(55 + 175 + 700); c2.y = t2.y; run(w2, 0.5); c2.x -= Core.px(300); run(w2, 0.1); c2.x += Core.px(300); const h2 = c2.hp; run(w2, 0.5);
   ok('이탈 후 재진입하면 경고를 처음부터 다시', c2.hp === h2); }
 
-// 13. 포탑 피해 / 물리관통력
-{ const w = mk(), c = w.champs[0], t = w.turrets[1]; c.x = t.x - Core.px(55 + 175 + 150); c.y = t.y; w.devT = 400; // 5분 이후(피해 감소 없음)
+// 13. 포탑 피해 / 물리관통력 (5분 이후 계산식 검사: 3:00 포탑 소멸을 이 검사에서만 끔)
+{ const vanish0 = Core.TURRET_CFG.vanishAt; Core.TURRET_CFG.vanishAt = Infinity; const w = mk(), c = w.champs[0], t = w.turrets[1]; c.x = t.x - Core.px(55 + 175 + 150); c.y = t.y; w.devT = 400; // 5분 이후(피해 감소 없음)
   const h0 = t.hp; Core.step(w, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]); run(w, 0.6);
   const dealt = h0 - t.hp; ok('포탑 방어력 60 적용', near(dealt, c.stats.ad / 1.6, 0.05), dealt.toFixed(2));
   const w2 = mk(), c2 = w2.champs[0], t2 = w2.turrets[1]; lvl(w2, c2, { e: 3 }); c2.x = t2.x - Core.px(55 + 175 + 150); c2.y = t2.y; w2.devT = 400;
   Core.step(w2, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]); run(w2, 0.6);
   ok('물리관통력 30% → 방어력 42로 계산', near(t2.maxHp - t2.hp, c2.stats.ad / (1 + 0.42), 0.05), (t2.maxHp - t2.hp).toFixed(2));
+  Core.TURRET_CFG.vanishAt = vanish0;
   const w3 = mk(), c3 = w3.champs[0], t3 = w3.turrets[1]; c3.x = t3.x - Core.px(55 + 175 + 150); c3.y = t3.y; 
   Core.step(w3, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]); run(w3, 0.6);
   ok('시작 5분 동안 포탑 받는 피해 85% 감소', near(t3.maxHp - t3.hp, c3.stats.ad / 1.6 * 0.15, 0.05), (t3.maxHp - t3.hp).toFixed(2)); }

@@ -42,6 +42,7 @@ const TURRET_CFG = {
   hp: 9000, ad: 182, adMax: 350, adStep: 12, adStart: 30, adEvery: 60,
   range: 775, armor: 60, mr: 60, as: 0.83, pen: 0.30,
   lock: 0.83,            // 사거리에 들어오면 이 시간 동안 경고, 끝나면 공격 시작
+  vanishAt: 180,         // 게임 시간 3:00에 양쪽 포탑이 사라짐(사용자 요청 2026-11-17). 사라지는 건 파괴가 아니라 승리 조건과 무관
   boltTime: 0.2,         // 포탑 투사체가 날아가는 시간
   stackBonus: 0.5, stackMax: 3,
   reduction: 0.85, reductionUntil: 300,
@@ -1636,6 +1637,11 @@ function step(w, cmds) {
   if (cmds) for (const cmd of cmds) applyCommand(w, cmd);
   const dt = TICK;
   w.time += dt;
+  // 3:00이 되면 양쪽 포탑이 한꺼번에 사라짐(배열에서 제거 → 조준·날아가던 공격도 같이 없어짐, 파괴 판정 아님)
+  if (!w.turretsGone && w.turrets.length && gameTime(w) >= TURRET_CFG.vanishAt) {
+    w.turrets = []; w.turretsGone = true;
+    w.events.push({ type: 'fx', fx: 'turretsGone', life: 3 });
+  }
   for (const c of w.champs) updateChamp(w, c, dt);
   for (const t of w.turrets) updateTurret(w, t, dt);
   for (const d of w.dummies) updateDummy(w, d, dt);

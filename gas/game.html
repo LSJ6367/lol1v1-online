@@ -363,7 +363,7 @@ button { font: inherit; color: inherit; }
       </div>
       <button class="ghost" id="btnOffline" type="button">혼자 연습 (오프라인)</button>
     </div>
-    <p class="buildVer">버전 <b>98B756</b></p>
+    <p class="buildVer">버전 <b>2D2EEE</b></p>
   </section>
 
   <section id="room" class="screen" aria-label="대기실" hidden>
@@ -536,6 +536,7 @@ const TURRET_CFG = {
   hp: 9000, ad: 182, adMax: 350, adStep: 12, adStart: 30, adEvery: 60,
   range: 775, armor: 60, mr: 60, as: 0.83, pen: 0.30,
   lock: 0.83,            // 사거리에 들어오면 이 시간 동안 경고, 끝나면 공격 시작
+  vanishAt: 180,         // 게임 시간 3:00에 양쪽 포탑이 사라짐(사용자 요청 2026-11-17). 사라지는 건 파괴가 아니라 승리 조건과 무관
   boltTime: 0.2,         // 포탑 투사체가 날아가는 시간
   stackBonus: 0.5, stackMax: 3,
   reduction: 0.85, reductionUntil: 300,
@@ -2130,6 +2131,11 @@ function step(w, cmds) {
   if (cmds) for (const cmd of cmds) applyCommand(w, cmd);
   const dt = TICK;
   w.time += dt;
+  // 3:00이 되면 양쪽 포탑이 한꺼번에 사라짐(배열에서 제거 → 조준·날아가던 공격도 같이 없어짐, 파괴 판정 아님)
+  if (!w.turretsGone && w.turrets.length && gameTime(w) >= TURRET_CFG.vanishAt) {
+    w.turrets = []; w.turretsGone = true;
+    w.events.push({ type: 'fx', fx: 'turretsGone', life: 3 });
+  }
   for (const c of w.champs) updateChamp(w, c, dt);
   for (const t of w.turrets) updateTurret(w, t, dt);
   for (const d of w.dummies) updateDummy(w, d, dt);
@@ -2188,7 +2194,7 @@ return {
 })(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
-const VERSION = 15;   // 15: 평타 v2 — 후딜 취소(스킬 시전 시 후딜 끝), 스킬이 끝나면 평타 대기 초기화(ATTACK_RESET_ON_SKILL), 평타 고정(누른 순간 대상 고정·버튼을 떼도 계속 공격, 조이스틱·스킬·점화·점멸로 해제). 입력 형식은 그대로 / 14: 시작 아이템(도란의 검·도란의 방패·체력 물약) 추가: 방 메시지 set(선택 단계, 준비 전), 방 players.set, 행동 it(물약) / 13: 소환사 주문 점화·점멸 추가(act sp: 점화는 대상 자동, 점멸은 방향 ang·aimed) / 12: 아트록스 W(지옥사슬)·E(파멸의 돌진)·R(세계의 종결자) 추가, 돌진 조준 표시 aimed(cast 원소) 추가 / 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
+const VERSION = 16;   // 16: 게임 시간 3:00에 양쪽 포탑이 사라짐(fx turretsGone, 승리 판정 아님) / 15: 평타 v2 — 후딜 취소(스킬 시전 시 후딜 끝), 스킬이 끝나면 평타 대기 초기화(ATTACK_RESET_ON_SKILL), 평타 고정(누른 순간 대상 고정·버튼을 떼도 계속 공격, 조이스틱·스킬·점화·점멸로 해제). 입력 형식은 그대로 / 14: 시작 아이템(도란의 검·도란의 방패·체력 물약) 추가: 방 메시지 set(선택 단계, 준비 전), 방 players.set, 행동 it(물약) / 13: 소환사 주문 점화·점멸 추가(act sp: 점화는 대상 자동, 점멸은 방향 ang·aimed) / 12: 아트록스 W(지옥사슬)·E(파멸의 돌진)·R(세계의 종결자) 추가, 돌진 조준 표시 aimed(cast 원소) 추가 / 11: 아트록스 추가(기본 스탯·사신 태세·Q), 모든 피해 흡혈 스탯·마법 피해 추가 / 10: 가렌 심판 시작 뒤 0.5초 동안 E 취소 무시(연타 방지, 사용자 수정 2026-11-12 22:06) / 9: 다리우스 과다출혈 계수(0.3)·마스터 이 우주류 검술 추가 고정 피해 계수(0.35)를 총 공격력 → 추가 공격력 기준으로 변경(사용자 수정 2026-11-12) / 8: 데마시아의 정의 판정 정정(시전 중 400 밖이면 헛방, 시전이 끝나면 거리와 무관하게 적중, 1000 취소 삭제) / 7: 가렌 추가(결정타·용기·심판·데마시아의 정의, 인내심, 용기 영구 방어력) / 6: 보호막·침묵·강인함·추가 스탯, 다리우스 W 쿨타임 정지·R 계수 변경 / 5: 평타 자동 추적(사거리 밖 평타 → 가까운 대상까지 이동 후 평타)
 const TICK_HZ = 60;
 const SNAP_EVERY = 2;          // 2틱마다 스냅샷 → 초당 30회
 const INTERP_TICKS = 4;        // 다른 유닛은 약 67ms 과거 시점을 보간해서 그림
@@ -4186,7 +4192,8 @@ function handleEvents() {
   for (const ev of session.drainEvents()) {
     if (ev.type === 'text') { if (!ev.to || ev.to === myId) incoming.push(ev); }
     else if (ev.type === 'fx') {
-      if (ev.fx === 'atkRange' && ev.owner !== myId) continue;   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
+      if (ev.fx === 'atkRange' && ev.owner !== myId) continue;
+      if (ev.fx === 'turretsGone') { showBanner('3:00 · 양쪽 포탑이 사라졌어요', false, 3); continue; }   // 평타 사거리 표시는 내 챔피언 것만 그림(이벤트는 두 사람 모두에게 감)
       const o = Object.assign({}, ev, { t: 0, life: ev.life || FX_LIFE[ev.fx] || 0.3 });
       if (o.fx === 'yslash') o.dir = o.ang + Math.PI / 2 + YSLASH_OFF[yslashN++ % YSLASH_OFF.length];
       if (o.fx === 'slash' && o.key === 'garen' && garenEmpowered()) fxList.push({ fx: 'gburst', x: o.x, y: o.y, ang: o.ang, t: 0, life: 0.38 });   // 결정타 강화 평타 적중: 금빛 섬광
