@@ -166,6 +166,8 @@ const mk = (o) => {
   ok('3 heal: R 1.5 → 150', near(hv(true, false), 150, 1e-9), hv(true, false));
   ok('3 heal: R 1.5 × 점화 0.6 = 0.9 → 90', near(hv(true, true), 90, 1e-9), hv(true, true));
   ok('3 healMul: 곱 0.9, 점화만 0.6', near(Core.healMul(Object.assign(mk({ key: 'aatrox', dummy: false }).a, { ign: { t: 0, src: 'e1', n: 5 } })), 0.6, 1e-12)); }
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 { // 흡혈 ×0.6: 시전자(다리우스, 흡혈 20%)가 점화를 받은 상태에서 평타 적중. 기준은 같은 평타를 점화 없이 쳤을 때
   //   (평타 적중 순간에는 다리우스 출혈 틱이 같이 돌아서 허수아비 체력 차이를 그대로 재면 안 됨 → 평타 피해 = 총 공격력으로 확인)
   const lifesteal = (withIgnite) => {
@@ -176,7 +178,7 @@ const mk = (o) => {
     let g = 0;
     while (!a.atk && g++ < 10) Core.step(w, [inp('p1', 0, 0, true)]);
     const h0 = a.hp;
-    while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
+    while (!afterHit(a) && g++ < 4000) Core.step(w, []);
     const gain = a.hp - h0, ad = Core.curAD(a);
     Core.step(w, [inp('p1', 0, 0, false)]);
     return { gain, ad };

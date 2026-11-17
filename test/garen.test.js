@@ -49,13 +49,15 @@ const openSpot = () => {
   }
   return null;
 };
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 // 평타 한 번 적중: 대상의 (체력+보호막) 감소량 = 방어력·관통·피해 감소 뒤 받은 피해
 const hitOnce = (w, a, t) => {
   let g = 0;
   while ((a.atk || a.atkCd > 0) && g++ < 2000) Core.step(w, []);
   const p0 = pool(t);
   Core.step(w, [inp(a.id, 0, 0, true)]);
-  while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
+  while (!afterHit(a) && g++ < 4000) Core.step(w, []);
   Core.step(w, [inp(a.id, 0, 0, false)]);
   a.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   return p0 - pool(t);

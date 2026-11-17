@@ -43,13 +43,15 @@ const mk = (o) => {
 // 기준 c에서 (앞 f, 옆 s) 유닛, 방향 ang (앞 = (cos, sin), 옆 = (-sin, cos)). 월드 px
 const at = (c, f, s, ang = 0) => ({ x: c.x + px(f) * Math.cos(ang) - px(s) * Math.sin(ang), y: c.y + px(f) * Math.sin(ang) + px(s) * Math.cos(ang) });
 const put = (t, c, f, s, ang = 0) => { const p = at(c, f, s, ang); t.x = p.x; t.y = p.y; };
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 // 평타 한 번 적중: 적중 틱 전후 대상 체력+보호막 감소(dealt)와 가해자 체력 증가(gain)
 const strikeOnce = (w, a, t) => {
   let g = 0;
   while ((a.atk || a.atkCd > 0) && g++ < 2000) Core.step(w, []);
   const p0 = pool(t), h0 = a.hp;
   Core.step(w, [inp(a.id, 0, 0, true)]);
-  while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
+  while (!afterHit(a) && g++ < 4000) Core.step(w, []);
   const out = { dealt: p0 - pool(t), gain: a.hp - h0 };
   Core.step(w, [inp(a.id, 0, 0, false)]);
   return out;

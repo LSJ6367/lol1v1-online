@@ -83,7 +83,7 @@ const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let 
   // 처치 환급
   const w3 = mk(), c3 = w3.champs[0], d3 = w3.dummies[0]; lvl(w3, c3, { w: 1 }); c3.x = d3.x - Core.px(150); c3.y = d3.y; d3.hp = 5; c3.mana = 200;
   Core.step(w3, [{ type: 'cast', id: 'p1', skill: 'w', ang: 0 }]); const cdAfter = c3.cd.w;
-  Core.step(w3, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]); run(w3, 0.4);
+  Core.step(w3, [{ type: 'input', id: 'p1', mx: 0, my: 0, atk: true }]); run(w3, 0.6);   // 선딜 30%(다리우스 0.48초)보다 길게
   ok('처치 시 마나 환급(40)', near(c3.mana, 200, 3), c3.mana.toFixed(1)); ok('처치 시 쿨타임 50% 감소', c3.cd.w < cdAfter * 0.6 + 0.01, c3.cd.w.toFixed(2)); }
 
 // 8. 스킬 3: 끌어당김 + 공중 + 둔화 + 과다출혈 + 물리관통력

@@ -47,17 +47,20 @@ const place = (w, gap) => { const p = P(w), e = E(w); e.x = p.x + px(gap + 110);
 const giveAll = c => { c.sk.q = 1; c.sk.w = 1; c.sk.e = 1; c.sk.r = 1; c.sp = 0; c.mana = c.stats.maxMana; };
 const prepP = (w, key) => { const p = P(w); giveAll(p); if (key === 'garen') p.sk.r = 1; return p; };
 
+// 적중 직후인지: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태.
+// 취소된 평타는 대기시간이 0이므로 적중과 구별됨
+const afterHit = p => Core.BACKSWING > 0 ? !!(p.atk && p.atk.hit) : (p.atk === null && p.atkCd > 0);
 // 평타 한 번을 선딜 끝(타격)까지 진행. 버튼을 누른 채 둔다(release 옵션으로 뗄 수 있음). 반환: 타격 성공 여부
 function strikeOnce(C, w, p, release) {
   C.step(w, [inp(p.id, 0, 0, true)]);
   let g = 0;
-  while (!(p.atk && p.atk.hit) && g++ < 2000) C.step(w, []);
+  while (!afterHit(p) && g++ < 2000) C.step(w, []);
   if (release) C.step(w, [inp(p.id, 0, 0, false)]);
   return g < 2000;
 }
 
 // ---------------------------------------------------------------------
-// A. T1 후딜 취소: 모든 챔피언의 스킬이 후딜을 끊고 같은 틱에 시작
+// A. T1 적중 직후 시전: 모든 챔피언의 스킬이 평타를 끊고 같은 틱에 시작 (BACKSWING = 0이라 적중 틱에 평타가 이미 끝남)
 // ---------------------------------------------------------------------
 // 각 항목: 상대 챔피언 키, 스킬, 이 스킬이 시작됐는지, 시전 중 이동 가능 여부(이동 입력 3틱이 먹는지)
 const CASES = [
@@ -83,11 +86,11 @@ for (const c of CASES) {
   const w = mk(Core, c.key, c.key === 'yi' ? 'darius' : 'yi');
   const p = prepP(w, c.key);
   place(w, 100);
-  strikeOnce(Core, w, p, true);                       // 평타 한 번 맞힘 → 후딜 중
-  const inBack = !!p.atk && p.atk.hit;
+  strikeOnce(Core, w, p, true);                       // 평타 한 번 맞힘 → 적중 직후(대기시간 중)
+  const inBack = afterHit(p);
   const x0 = p.x;
   Core.step(w, [cmd('cast', 'p1', { skill: c.k, ang: 0 })]);
-  ok(`A1 ${castName(c)} 후딜 중 시전 → 후딜 끝, 스킬 같은 틱에 시작`, inBack && p.atk === null && c.ok(p));
+  ok(`A1 ${castName(c)} 적중 직후 시전 → 평타 끝(atk null), 스킬 같은 틱에 시작`, inBack && p.atk === null && c.ok(p));
   if (c.move) {
     for (let i = 0; i < 3; i++) Core.step(w, [inp('p1', 1, 0, false)]);
     ok(`A1 ${castName(c)} 시전 뒤 바로 이동 가능`, p.x > x0 + 1e-6, (p.x - x0).toFixed(2));
@@ -116,7 +119,7 @@ for (const c of INSTANT) {
   const w = mk(Core, c.key, c.key === 'yi' ? 'darius' : 'yi');
   const p = prepP(w, c.key);
   place(w, 100);
-  strikeOnce(Core, w, p, true);                       // 평타 한 번 맞히고 뗌(후딜 중)
+  strikeOnce(Core, w, p, true);                       // 평타 한 번 맞히고 뗌(적중 직후)
   Core.step(w, [cmd('cast', 'p1', { skill: c.k, ang: 0 }), inp('p1', 0, 0, false)]);
   const reset = p.atkCd === 0;                        // 시전 순간 대기시간 0
   // 다시 누르면 바로 평타. 아트록스 E는 0.2초 돌진 동안 평타가 막힘(돌진이 끝난 틱에 바로 나감)
@@ -131,7 +134,7 @@ for (const c of INSTANT) {
   const p = prepP(w, 'garen');
   place(w, 100);
   strikeOnce(Core, w, p, true);
-  Core.step(w, [inp('p1', 0, 0, true)]);              // 다시 누름(고정, 후딜 중)
+  Core.step(w, [inp('p1', 0, 0, true)]);              // 다시 누름(고정, 적중 직후)
   Core.step(w, [cmd('cast', 'p1', { skill: 'q', ang: 0 })]);
   ok('B1 누르고 있는 채 가렌 Q → 같은 틱에 평타 다시 시작', !!p.atk && !p.atk.hit && p.gq !== null);
 }
@@ -189,7 +192,7 @@ for (const c of CAST_TIME) {
   const a0 = p.atkCd;
   p.spCd.ignite = 0;
   Core.step(w, [cmd('spell', 'p1', { spell: 'ignite' })]);
-  ok('B4 점화: 대기시간 그대로, 후딜은 그대로 둠(atk 유지)', !!p.atk && p.atkCd > a0 - 2 * TICK && e.ign !== null, `atkCd=${p.atkCd.toFixed(3)}`);
+  ok(`B4 점화: 대기시간 그대로(주문은 리셋 안 함)${Core.BACKSWING > 0 ? ', 후딜은 그대로 둠(atk 유지)' : ''}`, (Core.BACKSWING > 0 ? !!p.atk : p.atk === null) && p.atkCd > a0 - 2 * TICK && e.ign !== null, `atkCd=${p.atkCd.toFixed(3)}`);
 }
 
 // B5 ATTACK_RESET_ON_SKILL = false: 후딜만 취소, 대기시간은 그대로
@@ -439,7 +442,7 @@ for (const c of CAST_TIME) {
 // G. 상수·내보내기
 // ---------------------------------------------------------------------
 ok('G1 CHASE.search 1200 (찾는 거리 그대로)', Core.CHASE.search === 1200);
-ok('G2 WINDUP 18% · BACKSWING 17% (사용자 요청 2026-11-17)', near(Core.WINDUP, 0.18, 1e-12) && near(Core.BACKSWING, 0.17, 1e-12));
+ok('G2 WINDUP 30% · BACKSWING 0% (사용자 요청 2026-11-17 13:06, 후딜 없음)', near(Core.WINDUP, 0.30, 1e-12) && near(Core.BACKSWING, 0, 1e-12));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

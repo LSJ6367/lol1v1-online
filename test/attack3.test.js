@@ -84,7 +84,7 @@ const giveAll = c => { c.sk.q = 1; c.sk.w = 1; c.sk.e = 1; c.sk.r = 1; c.sp = 0;
   const hp0 = e.hp;
   Core.step(w, [cmd('cast', 'p1', { skill: 'q', ang: 0 })]);
   ok('3 선딜 중 Q → 평타 취소, 대기시간 0, Q 준비 시작', p.atk === null && p.atkCd === 0 && p.qPrep !== null);
-  steps(w, ticks(0.5));                              // 선딜(0.29초)은 지났지만 Q 준비(0.75초) 중
+  steps(w, ticks(0.5));                              // 선딜(다리우스 0.48초)은 지났지만 Q 준비(0.75초) 중
   ok('3 취소된 평타는 맞지 않음', e.hp === hp0, `${hp0} → ${e.hp}`);
 }
 
@@ -110,16 +110,18 @@ const giveAll = c => { c.sk.q = 1; c.sk.w = 1; c.sk.e = 1; c.sk.r = 1; c.sp = 0;
 }
 
 // ---------------------------------------------------------------------
-// 5. 후딜 중 조이스틱: 후딜 끝(atk null), 같은 틱부터 이동, 대기시간은 그대로 흐름
+// 5. 적중 직후 조이스틱: 같은 틱부터 이동, 대기시간은 그대로 흐름 (후딜이 없어 적중 틱에 평타가 끝남)
+//    BACKSWING > 0이면 적중 뒤 후딜 중이므로 조이스틱으로 후딜이 끝남
 // ---------------------------------------------------------------------
-{ const w = mk('darius', 'yi'), p = P(w);
+{ const w = mk('darius', 'yi'), p = P(w), e = E(w);
   place(w, 100);
   Core.step(w, [inp('p1', 0, 0, true)]); Core.step(w, [inp('p1', 0, 0, false)]);   // 탭
-  let g = 0; while (!(p.atk && p.atk.hit) && g++ < ticks(2)) Core.step(w, []);
-  ok('5 준비: 후딜 중', !!p.atk && p.atk.hit);
+  const hp0 = e.hp;
+  let g = 0; while (e.hp === hp0 && g++ < ticks(2)) Core.step(w, []);                // 적중 틱까지
+  ok('5 준비: 적중 직후(평타 대기 중)', e.hp < hp0 && p.atkCd > 0.3 && (Core.BACKSWING > 0 ? !!p.atk : p.atk === null), `atk=${!!p.atk} atkCd=${p.atkCd.toFixed(3)}`);
   const cd0 = p.atkCd, x0 = p.x;
   Core.step(w, [inp('p1', -1, 0, false)]);
-  ok('5 후딜 중 조이스틱 → 후딜 끝(atk null)', p.atk === null);
+  ok('5 적중 직후 조이스틱 → 평타 끝(atk null)', p.atk === null);
   ok('5 같은 틱에 이동', p.x < x0 - 1e-6, (x0 - p.x).toFixed(3));
   ok('5 대기시간은 남아 있고 한 틱만큼만 줄어듦', p.atkCd > 0.3 && near(p.atkCd, cd0 - TICK, 1e-9), `${cd0.toFixed(4)} → ${p.atkCd.toFixed(4)}`);
 }

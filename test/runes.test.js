@@ -53,20 +53,23 @@ function mkTurret(key) {
   return { w, t };
 }
 
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = p => Core.BACKSWING > 0 ? !!(p.atk && p.atk.hit) : (p.atk === null && p.atkCd > 0);
 // 평타 한 번을 적중까지 진행. 버튼을 떼고 고정도 푼다(자동 평타가 이어지지 않게). 반환: 적중 여부
 function strike(w, p) {
   Core.step(w, [inp(p.id, 0, 0, true)]);
   let g = 0;
-  while (!(p.atk && p.atk.hit) && g++ < 2000) Core.step(w, [inp(p.id, 0, 0, false)]);
+  while (!afterHit(p) && g++ < 2000) Core.step(w, [inp(p.id, 0, 0, false)]);
   p.lock = null;
   Core.step(w, [inp(p.id, 0, 0, false)]);
   return g < 2000;
 }
 // 칼날비 기록: 한 틱 진행하고 새로 시작된 평타(번호 lt, 대기시간 cd, 선딜 wind, 후딜 back)와 적중한 평타 번호를 쌓음
 function track(w, p, rec, cmds) {
+  const pre = p.atk;                                  // 이 틱 전의 평타 객체: 적중 틱에 hit가 켜짐(후딜이 없으면 그 틱에 c.atk는 null)
   Core.step(w, cmds || []);
   if (p.atk && p.atk !== rec.last) { rec.last = p.atk; rec.starts.push({ t: w.time, lt: p.atk.lt || 0, cd: p.atkCd, wind: p.atk.wind, back: p.atk.back }); }
-  if (p.atk && p.atk.hit && rec.lastHit !== p.atk) { rec.lastHit = p.atk; rec.hits.push(p.atk.lt || 0); }
+  if (pre && pre.hit && rec.lastHit !== pre) { rec.lastHit = pre; rec.hits.push(pre.lt || 0); }
 }
 const newRec = () => ({ starts: [], hits: [], last: null, lastHit: null });
 /* 칼날비 강화 공속(L2) 공식 검사: 기본 공속 × (1 + 추가 공속 비율 + 0.9). 기본 공속이 1.0인 챔피언이면 1.9가 됨(원문 예시).
@@ -81,8 +84,10 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   const hit1 = strike(w, p);
   ok('7 평타 적중 → 2중첩(묶음 1개)', hit1 && p.conq.length === 1 && Core.conqStacks(p) === 2, JSON.stringify(p.conq));
   ok('7 묶음 시간 5초(방금 얻음)', near(p.conq[0], 5, 0.05), p.conq[0]);
-  steps(w, ticks(3));
-  ok('7 3초 뒤: 2중첩, 남은 시간 2초', Core.conqStacks(p) === 2 && near(p.conq[0], 2, 0.05), p.conq[0]);
+  // 두 번째 평타의 '적중'이 첫 적중 3초 뒤에 오도록 선딜(다리우스 약 0.46초)만큼 먼저 기다렸다가 누름
+  const wind = Core.WINDUP / Core.curAS(p);
+  steps(w, ticks(3 - wind));
+  ok('7 두 번째 평타 누르기 직전(3초 - 선딜): 2중첩, 남은 시간 2 + 선딜', Core.conqStacks(p) === 2 && near(p.conq[0], 2 + wind, 0.05), p.conq[0]);
   const hit2 = strike(w, p);
   ok('7 3초 뒤 평타 → 4중첩(두 묶음)', hit2 && Core.conqStacks(p) === 4 && p.conq.length === 2, JSON.stringify(p.conq));
   steps(w, ticks(1.5));
@@ -138,9 +143,9 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   Core.step(w, [inp('p1', 0, 0, true)]);
   let hitHurts = -1, g = 0;
   while (hitHurts < 0 && g++ < 2000) {
-    const before = d.hits.length;
+    const before = d.hits.length, pre = p.atk;
     Core.step(w, [inp('p1', 0, 0, false)]);
-    if (p.atk && p.atk.hit) hitHurts = d.hits.length - before;    // 적중 틱에 일어난 피해 횟수(출혈 틱은 적중 뒤에 시작)
+    if (pre && pre.hit) hitHurts = d.hits.length - before;    // 적중 틱에 일어난 피해 횟수(출혈 틱은 적중 뒤에 시작)
   }
   p.lock = null;
   ok('9 강화 평타: 한 틱에 여러 번 맞지만(평타 + 추가 피해, 출혈 첫 틱 포함) 중첩은 2중첩만', hitHurts >= 2 && p.conq.length === 1 && Core.conqStacks(p) === 2, `적중 틱 피해 ${hitHurts}번, ${JSON.stringify(p.conq)}`);
@@ -177,9 +182,9 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   Core.step(w, [inp('p1', 0, 0, true)]);
   let res = null;
   for (let i = 0; i < 2000 && !res; i++) {
-    const hd = d.hp, hp = p.hp;
+    const hd = d.hp, hp = p.hp, pre = p.atk;
     Core.step(w, [inp('p1', 0, 0, false)]);
-    if (p.atk && p.atk.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
+    if (pre && pre.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
   }
   p.lock = null;
   ok('11 12중첩 평타: 입힌 피해의 8% 회복', !!res && res.dealt > 0 && near(res.healed, 0.08 * res.dealt, 0.01), res && `${res.dealt.toFixed(2)} → +${res.healed.toFixed(3)}`);
@@ -189,9 +194,9 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   Core.step(w, [inp('p1', 0, 0, true)]);
   let res = null;
   for (let i = 0; i < 2000 && !res; i++) {
-    const hd = d.hp, hp = p.hp;
+    const hd = d.hp, hp = p.hp, pre = p.atk;
     Core.step(w, [inp('p1', 0, 0, false)]);
-    if (p.atk && p.atk.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
+    if (pre && pre.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
   }
   p.lock = null;
   ok('11 11→12 타격: 회복 없음(타격 전 중첩 기준), 이후 12중첩', !!res && res.dealt > 0 && near(res.healed, 0, 1e-9) && Core.conqStacks(p) === 12, res && `+${res.healed}, 중첩 ${Core.conqStacks(p)}`);
@@ -200,9 +205,9 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   const second = p.atk;
   res = null;
   for (let i = 0; i < 2000 && !res; i++) {
-    const hd = d.hp, hp = p.hp;
+    const hd = d.hp, hp = p.hp, pre = p.atk;
     Core.step(w, [inp('p1', 0, 0, false)]);
-    if (p.atk && p.atk !== second && p.atk.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
+    if (pre && pre !== second && pre.hit) res = { dealt: hd - d.hp, healed: p.hp - hp };
   }
   p.lock = null;
   ok('11 12중첩이 된 다음 타격부터 8% 회복', !!res && res.dealt > 0 && near(res.healed, 0.08 * res.dealt, 0.01), res && `${res.dealt.toFixed(2)} → +${res.healed.toFixed(3)}`);
@@ -316,14 +321,14 @@ const ltFormula = c => Core.CHAMPS[c.key].b.as * (1 + Core.bonusASPct(c) + 0.9);
   ok('15 평타 시작 번호: 1, 2(취소), 3, 4(묶음 마지막), 다음 묶음 1', s.length >= 5 && s.slice(0, 5).map(x => x.lt).join(',') === '1,2,3,4,1', s.map(x => x.lt).join(','));
   ok('15 적중한 강화 평타는 1·3·4번째 3번, 그 뒤 4번째는 원래 쿨타임', rec.hits.slice(0, 3).join(',') === '1,3,4' && s.length >= 5 && near(s[3].cd, CUR, 1e-9) && near(s[2].cd, LT, 1e-9), `hits ${rec.hits.join(',')} / cd ${s.length >= 5 ? s[2].cd.toFixed(3) + ' ' + s[3].cd.toFixed(3) : '-'}`);
 }
-// 15b. 후딜 취소(이미 맞음)는 환급 없음
+// 15b. 적중 직후(이미 맞음) 조이스틱은 환급 없음. 후딜이 없으므로 대기시간은 그대로 흐름 (BACKSWING > 0이면 후딜 취소)
 { const w = mkD('yi'), p = P(w);
   const rec = newRec();
   track(w, p, rec, [inp('p1', 0, 0, true)]);
   track(w, p, rec, [inp('p1', 0, 0, false)]);
   let g = 0; while (rec.hits.length < 1 && g++ < ticks(2)) track(w, p, rec);
-  track(w, p, rec, [inp('p1', 1, 0, false)]);        // 후딜 중 조이스틱
-  ok('15 후딜 취소는 환급 없음(max 3 그대로), 평타는 끝남', p.lt.max === 3 && p.atk === null, `max=${p.lt.max}`);
+  track(w, p, rec, [inp('p1', 1, 0, false)]);        // 적중 직후 조이스틱
+  ok('15 적중 직후 조이스틱은 환급 없음(max 3 그대로), 평타는 끝남', p.lt.max === 3 && p.atk === null && p.atkCd > 0, `max=${p.lt.max}, atkCd=${p.atkCd.toFixed(3)}`);
 }
 
 // ---------------------------------------------------------------------

@@ -39,13 +39,15 @@ const at = (a, f, s, ang = 0) => ({ x: a.x + px(f) * Math.cos(ang) - px(s) * Mat
 const place = (t, a, f, s, ang = 0) => { const p = at(a, f, s, ang); t.x = p.x; t.y = p.y; };
 // 대상 t를 가해자 c에서 히트박스 틈 gap 유닛(각도 ang)에 둠
 const placeGap = (c, t, gap, ang = 0) => { const dd = px(gap) + px(c.r) + px(t.r); t.x = c.x + Math.cos(ang) * dd; t.y = c.y + Math.sin(ang) * dd; };
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 // 평타 한 번 적중. 적중 틱 직전 값(pre)과 직후 값을 돌려줌
 const strikeOnce = (w, a, t) => {
   let g = 0;
   while ((a.atk || a.atkCd > 0) && g++ < 2000) Core.step(w, []);
   Core.step(w, [inp(a.id, 0, 0, true)]);
   let pre = null;
-  while (!(a.atk && a.atk.hit) && g++ < 4000) { pre = { p: pool(t), h: a.hp, ap: a.apCd }; Core.step(w, []); }
+  while (!afterHit(a) && g++ < 4000) { pre = { p: pool(t), h: a.hp, ap: a.apCd }; Core.step(w, []); }
   const out = { dealt: pre.p - pool(t), gain: a.hp - pre.h, apPre: pre.ap, apPost: a.apCd };
   Core.step(w, [inp(a.id, 0, 0, false)]);
   return out;

@@ -26,13 +26,15 @@ const hasText = (w, s) => w.events.some(e => e.type === 'text' && e.txt === s);
 const nearDummy = (c, d) => { c.x = d.x - px(150); c.y = d.y; };   // 평타 사거리 안
 const nearRUlt = (c, d) => { c.x = d.x - px(55 + 70 + 200); c.y = d.y; };   // 궁극기 사거리 안(히트박스 끝 기준 약 200유닛)
 
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 // 마스터 이(p1)가 허수아비를 평타 한 번 때림. 적중 틱까지 진행하고 허수아비가 받은 피해(보호막 포함)를 돌려줌
 function yiHit(w, y, d) {
   let g = 0;
   while ((y.atk || y.atkCd > 0) && g++ < 2000) Core.step(w, []);
   const tot0 = d.total, hp0 = d.hp;
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: true })]);
-  while (!(y.atk && y.atk.hit) && g++ < 4000) Core.step(w, []);
+  while (!afterHit(y) && g++ < 4000) Core.step(w, []);
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: false })]);
   y.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음
   return { dealt: d.total - tot0, hpLoss: hp0 - d.hp };
@@ -154,7 +156,7 @@ ok('3 기본 공격력을 300으로 올려도 추가 공격력 0이면 궁극기
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: true })]); run(w, 0.1);
   Core.addSilence(w, c, 3);
   ok('4d 평타 선딜 중 침묵 → 평타 동작 유지', !!c.atk);
-  let g = 0; while (!(c.atk && c.atk.hit) && g++ < 600) Core.step(w, []);
+  let g = 0; while (!afterHit(c) && g++ < 600) Core.step(w, []);
   ok('4d 침묵 중에도 평타 적중', d.hp < hp0, (hp0 - d.hp).toFixed(1));
   Core.step(w, [cmd('input', 'p1', { mx: 0, my: 0, atk: false })]); }
 

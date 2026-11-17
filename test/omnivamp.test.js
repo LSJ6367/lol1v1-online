@@ -30,13 +30,15 @@ const pair = (k1, k2) => {
 };
 // 대상 t를 가해자 c의 오른쪽(각도 ang)에 히트박스 틈 gap 유닛만큼 떨어뜨림
 const place = (c, t, gap, ang = 0) => { const dd = px(gap) + px(c.r) + px(t.r); t.x = c.x + Math.cos(ang) * dd; t.y = c.y + Math.sin(ang) * dd; };
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = a => Core.BACKSWING > 0 ? !!(a.atk && a.atk.hit) : (a.atk === null && a.atkCd > 0);
 // 평타 한 번 적중: 적중 틱 직전·직후 대상 체력+보호막 감소와 가해자 체력 증가
 const strikeOnce = (w, a, t) => {
   let g = 0;
   while ((a.atk || a.atkCd > 0) && g++ < 2000) Core.step(w, []);
   const p0 = pool(t), h0 = a.hp;
   Core.step(w, [inp(a.id, 0, 0, true)]);
-  while (!(a.atk && a.atk.hit) && g++ < 4000) Core.step(w, []);
+  while (!afterHit(a) && g++ < 4000) Core.step(w, []);
   const out = { dealt: p0 - pool(t), gain: a.hp - h0 };
   Core.step(w, [inp(a.id, 0, 0, false)]);
   a.lock = null;                        // 평타 고정 해제(T4: 버튼을 떼도 고정은 남음). 한 번만 치는 측정이므로 여기서 끊음

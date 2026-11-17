@@ -38,13 +38,15 @@ const WUJU1 = 20;                             // 우주류 검술 1레벨 추가
 const ALPHA1 = (35 + 1.225 * AD) * 0.25;      // 일격필살 1레벨 1타 = 32.484
 const lbl = d => near(d, A, 0.05) ? 'A' : near(d, H, 0.05) ? 'H' : '?';
 
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = c => Core.BACKSWING > 0 ? !!(c.atk && c.atk.hit) : (c.atk === null && c.atkCd > 0);
 // 평타 1회: 적중 틱의 대상 체력 감소량을 돌려줌
 function attackOnce(w, c, d) {
   let g = 0, drop = 0;
   while ((c.atk || c.atkCd > 0) && g++ < 2000) Core.step(w, []);
   Core.step(w, [cmd('input', c.id, { mx: 0, my: 0, atk: true })]);
   g = 0;
-  while (!(c.atk && c.atk.hit) && g++ < 2000) { const h = d.hp; Core.step(w, []); drop = h - d.hp; }
+  while (!afterHit(c) && g++ < 2000) { const h = d.hp; Core.step(w, []); drop = h - d.hp; }
   Core.step(w, [cmd('input', c.id, { mx: 0, my: 0, atk: false })]);
   return drop;
 }
@@ -55,9 +57,10 @@ function holdAttacks(w, c, d, n) {
   Core.step(w, [cmd('input', c.id, { mx: 0, my: 0, atk: true })]);
   while (strikes.length < n && g++ < 4000) {
     const h = d.hp, q = c.cd.q, t = w.time;
+    const pre = c.atk;                   // 이 틱 전의 평타 객체: 적중 틱에 hit가 켜지고(객체 공유), 그 틱에 c.atk는 null이 될 수 있음
     Core.step(w, []);
     if (h - d.hp > 1e-9) hits.push({ dmg: h - d.hp, t, cdDiff: q - c.cd.q });
-    if (c.atk && c.atk.hit && c.atk !== seen) { seen = c.atk; strikes.push(c.dstack); }
+    if (pre && pre.hit && pre !== seen) { seen = pre; strikes.push(c.dstack); }
   }
   Core.step(w, [cmd('input', c.id, { mx: 0, my: 0, atk: false })]);
   return { hits, strikes };

@@ -24,13 +24,15 @@ const mk = (opts) => {   // 룬 끔: 기존 수치 검사 (DESIGN_RUNES Q7). 출
 const lvl = (w, c, pts) => { for (const [k, n] of Object.entries(pts)) for (let i = 0; i < n; i++) Core.step(w, [{ type: 'levelup', id: c.id, skill: k }]); };
 // 레벨 L로 바꾸기(월드 조작): 레벨과 레벨 기준 스탯을 함께 맞춘다
 const setLevel = (c, L) => { c.level = L; c.stats = Core.calcStats(c.key, L); };
+// 적중 직후: 후딜이 있으면(BACKSWING > 0) 후딜 중, 없으면 적중 틱에 평타가 끝나 대기시간이 남은 상태
+const afterHit = c => Core.BACKSWING > 0 ? !!(c.atk && c.atk.hit) : (c.atk === null && c.atkCd > 0);
 // 평타 한 번: 선딜 끝 타격 직전 대상 체력(pre)을 돌려준다. 타격 틱에 들어간 출혈 1틱도 pre 이후에 포함된다.
 function hit(w, c, t) {
   let g = 0;
-  while ((c.atk || c.atkCd > 0) && g++ < 2000) Core.step(w, []);   // 공격 쿨다운과 후딜이 끝날 때까지 대기
+  while ((c.atk || c.atkCd > 0) && g++ < 2000) Core.step(w, []);   // 공격 쿨다운이 끝날 때까지 대기
   Core.step(w, [{ type: 'input', id: c.id, mx: 0, my: 0, atk: true }]);
   let pre = t.hp; g = 0;
-  while (!(c.atk && c.atk.hit) && g++ < 2000) { pre = t.hp; Core.step(w, []); }
+  while (!afterHit(c) && g++ < 2000) { pre = t.hp; Core.step(w, []); }
   Core.step(w, [{ type: 'input', id: c.id, mx: 0, my: 0, atk: false }]);
   c.lock = null;   // 평타 고정은 버튼을 떼도 남음(DESIGN_ATTACK2 T4). 한 번만 치는 측정이므로 여기서 고정을 끊음
   return pre;
@@ -106,7 +108,7 @@ function hit_track(w, c, t) {
   while ((c.atk || c.atkCd > 0) && g++ < 2000) Core.step(w, []);
   Core.step(w, [{ type: 'input', id: c.id, mx: 0, my: 0, atk: true }]);
   let pre = t.hp; g = 0;
-  while (!(c.atk && c.atk.hit) && g++ < 2000) { pre = t.hp; Core.step(w, []); }
+  while (!afterHit(c) && g++ < 2000) { pre = t.hp; Core.step(w, []); }
   const drops = [pre - t.hp];          // 타격 스텝(출혈 1틱 포함)
   t._lastTotal = t.bleed ? t.bleed.total : 0;
   let h = t.hp;
